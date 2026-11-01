@@ -1,0 +1,29 @@
+{
+  "python": "Python 3.12.11",
+  "uv": "uv 0.9.0 (39b688653 2025-10-07)",
+  "lock_sha256": "b67116be22c15490be59af64b15591a86694cdc37b324f2d574b26917e29e52f",
+  "tests": {
+    "passed": 63,
+    "failed": 0,
+    "skipped": 0,
+    "trusted_lightgbm_asset_used": true
+  },
+  "lint": "passed",
+  "format": "passed",
+  "task_schema": [
+    "color_matching",
+    "color_matching_safety",
+    "my_color_task"
+  ],
+  "scientific_acceptance": "pending",
+  "code_revision": "dbb1382e8d9729ed92a2b9a77bde9dddd646296a24314c9e06c332bf95336c23",
+  "date_local": "2026-11-02",
+  "server_tests": {
+    "host_alias": "tencent",
+    "python": "3.12.11",
+    "passed": 63,
+    "failed": 0,
+    "skipped": 0,
+    "elapsed_seconds": 12.33
+  }
+}

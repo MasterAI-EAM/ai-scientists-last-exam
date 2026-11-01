@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-02",
+  "reference": "fig1_introduction_drawio_v19.drawio",
+  "reference_unchanged": true,
+  "source_photo_bytes_preserved": true,
+  "drawio_version": "32.6.1",
+  "pdf_pages": 3,
+  "structural_validation": {
+    "errors": 0,
+    "warnings": 0,
+    "through_vertex_edges": 0,
+    "crossings": 0,
+    "overlaps": 0
+  },
+  "contrast_check": {
+    "profile": "architecture",
+    "errors": 0,
+    "warnings": 0,
+    "findings": []
+  },
+  "visual_inspection": "All three final non-embedded PNGs inspected at 2400 px width after contrast adjustment. No clipping, overlapping text, node-through-edge paths, or detached arrows observed.",
+  "files": {
+    "aisle_framework.drawio": {
+      "bytes": 2869645,
+      "sha256": "a9703c5bdd71fc17497489889b2ffe565bb9e74b01040c51975dcf2ad949504e"
+    },
+    "01-framework.png": {
+      "bytes": 897199,
+      "sha256": "cf5aa7236de53366b9ff23df419d8fd72b4ef4d3d3c3e03de20730e35583c869",
+      "size_px": [
+        2400,
+        1541
+      ]
+    },
+    "02-contribution.png": {
+      "bytes": 883901,
+      "sha256": "4e48355d212eca34482e8f3cb54237d6428c75029189269096d13a001fc0d3b9",
+      "size_px": [
+        2400,
+        1541
+      ]
+    },
+    "03-real-loop.png": {
+      "bytes": 704372,
+      "sha256": "a95709f557bbac2cf62ff55fe1b353336a0908a080ca7c262c14575458089bd8",
+      "size_px": [
+        2400,
+        1503
+      ]
+    },
+    "01-framework.svg": {
+      "bytes": 7562070,
+      "sha256": "96f8e14a718dafd0f0d5fd23c28969b761b1270b5f664e63761f4f38b0d91306"
+    },
+    "02-contribution.svg": {
+      "bytes": 2341178,
+      "sha256": "ab21cc36369e407136aba4307b036c7ddee7c37701a448dabb07025df0ed2e7f"
+    },
+    "03-real-loop.svg": {
+      "bytes": 2037218,
+      "sha256": "12d253fa3a57a2676cacae62655ada4f366d611c62e53e7bd39813d8d210f539"
+    },
+    "aisle_framework.pdf": {
+      "bytes": 6051772,
+      "sha256": "d700dd36c0f9b339016c7dd159354bbb606cf44f94adab8e189cf5c337bd2bab"
+    }
+  }
+}
