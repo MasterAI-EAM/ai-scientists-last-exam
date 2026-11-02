@@ -6,11 +6,13 @@ __pycache__/
 .env
 .env.*
 !.env.example
+private/
+jobs/
 .aisle/
 *.sqlite*
 *.joblib
 *.pkl
-private/
+color_001/environment/assets/
 dist/
 *.egg-info/
 .DS_Store
