@@ -22,7 +22,7 @@ SHA-256 a52a7bb3c6af4f1807a285ef891ff7aff8021f1dd4df56af35fe9fc16ce24819
 Joblib 只能加载来自可信提供方且与冻结哈希匹配的资产。
 
 源代码采用 MIT，归属 MasterAI (UNSW AI4Science)；保留文本见
-[PSI-Bench MIT 许可](../THIRD_PARTY_LICENSES/PSI-Bench-MIT.txt)。代码许可不能代替数据、权重、设备照片或实验参与者的单独授权。
+[PSI-Bench MIT 许可](../../THIRD_PARTY_LICENSES/PSI-Bench-MIT.txt)。代码许可不能代替数据、权重、设备照片或实验参与者的单独授权。
 
 | 权利/证据事项 | 状态 |
 |---|---|

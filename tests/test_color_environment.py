@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-TASK = ROOT / "color_001"
+TASK = ROOT / "tasks" / "color_001"
 SPEC = importlib.util.spec_from_file_location("color_server", TASK / "environment" / "server.py")
 assert SPEC and SPEC.loader
 server = importlib.util.module_from_spec(SPEC)

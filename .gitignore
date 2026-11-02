@@ -12,7 +12,7 @@ jobs/
 *.sqlite*
 *.joblib
 *.pkl
-color_001/environment/assets/
+tasks/*/environment/assets/
 dist/
 *.egg-info/
 .DS_Store
