@@ -24,13 +24,20 @@ Scientific simulator holdout validation and physical lab acceptance remain pendi
 
 ## Simulation scientific gate
 
+- [ ] [Validation plan](validation/sim-validation-plan.json) freezes the [colour profile and full procedure](validation/README.md) before final testing; [validation report](validation/sim-validation-report.json) records actual results and evidence.
 - [ ] Lab provides original calibration data with sample/batch identities and provenance.
 - [ ] Training and holdout partitions are independently identified; repeated sample/batch leakage excluded.
 - [ ] Predeclared independent validation measures error, action-domain coverage and optimization/ranking regions.
+- [ ] Per-channel MAE/RMSE/R², domain error mean/P95, target-score errors, candidate-score ranking and success confusion counts/rates are reported with the required strata, denominators and uncertainty.
+- [ ] Every applicable hard gate in the [sim verifier standard](../../../docs/sim-verifier-acceptance.zh-CN.md) passes; thresholds are justified by scientific tolerance, repeat noise, decision risk and sample size, rather than fitted to final-test outcomes.
 - [ ] Thresholds, seeds, repeats, simulator/environment hashes and failure cases frozen.
 - [ ] Reviewer accepts physical mapping, range restrictions and fitness for Sim Top-K selection.
 
 A successful inference call or a low training error cannot satisfy this gate. Learned surrogate predictions outside validated scope cannot be presented as scientifically accepted experiments.
+
+Current independent holdout results are unmeasured: the companion report keeps metric values `null`, not zero or pass. The numeric profile is an acceptance requirement, not observed LightGBM performance. R² is diagnostic and cannot replace domain-error, decision-fidelity or ranking gates. Insufficient stratum counts or undefined required metrics remain insufficient evidence; scoring-code tests separately establish formula and boundary correctness.
+
+This task may merge as a G1 development example while retaining `review.status: draft`, `sim.validation_status: pending` and `real.readiness: pending`. G2 scientific acceptance requires the complete report and independent scientific sign-off; it does not follow from engineering CI.
 
 ## Real readiness gate
 

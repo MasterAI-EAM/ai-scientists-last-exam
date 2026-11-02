@@ -24,13 +24,21 @@ Scientific simulator holdout validation and physical lab acceptance remain pendi
 
 ## Simulation scientific gate
 
+- [ ] [Validation plan](validation/sim-validation-plan.json) freezes the [colour procedure](../color_matching/validation/README.md) including the safety extension before final testing; [validation report](validation/sim-validation-report.json) records actual results and evidence.
 - [ ] Lab provides original calibration data with sample/batch identities and provenance.
 - [ ] Training and holdout partitions are independently identified; repeated sample/batch leakage excluded.
 - [ ] Predeclared independent validation measures error, action-domain coverage and optimization/ranking regions.
+- [ ] Per-channel MAE/RMSE/R², domain error mean/P95, target-score errors, candidate-score ranking and success confusion counts/rates are reported with the required strata, denominators and uncertainty.
+- [ ] The safety extension reports false-safe counts/rate and its confidence upper bound, with true forbidden samples as the denominator and coverage on both sides of both forbidden boundaries. Zero forbidden samples is insufficient evidence, not a zero false-safe rate.
+- [ ] Every applicable hard gate in the [sim verifier standard](../../../docs/sim-verifier-acceptance.zh-CN.md) passes; thresholds are justified by scientific tolerance, repeat noise, decision risk and sample size, rather than fitted to final-test outcomes.
 - [ ] Thresholds, seeds, repeats, simulator/environment hashes and failure cases frozen.
 - [ ] Reviewer accepts physical mapping, range restrictions and fitness for Sim Top-K selection.
 
 A successful inference call or a low training error cannot satisfy this gate. Learned surrogate predictions outside validated scope cannot be presented as scientifically accepted experiments.
+
+Current independent holdout results are unmeasured: the companion report keeps metric values `null`, not zero or pass. The numeric profile is an acceptance requirement, not observed LightGBM performance. R² cannot replace decision-fidelity or safety gates. Insufficient stratum counts or undefined required metrics remain insufficient evidence. Scoring-code tests must separately verify the closed forbidden interval and its exact boundaries; this benign colour constraint does not certify chemical or equipment safety.
+
+This task may merge as a G1 development example while retaining `review.status: draft`, `sim.validation_status: pending` and `real.readiness: pending`. G2 scientific acceptance requires the complete report and independent scientific sign-off; it does not follow from engineering CI.
 
 ## Real readiness gate
 
