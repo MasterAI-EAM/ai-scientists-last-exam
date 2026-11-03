@@ -7,6 +7,7 @@ import http.client
 import json
 import shlex
 import socket
+import subprocess
 import threading
 import time
 from contextlib import contextmanager
@@ -14,6 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
+from connectrpc.code import Code
+from connectrpc.errors import ConnectError
 from harbor.models.task.config import NetworkMode, NetworkPolicy
 
 from integrations import tencent
@@ -56,12 +59,14 @@ class LocalSandbox:
         self.local(path).write_text(data)
 
     def run(self, command, **kwargs):
-        fields = shlex.split(command)
-        if fields[:2] == ["mv", "--"]:
-            self.local(fields[2]).replace(self.local(fields[3]))
-        else:
-            assert fields[:2] == ["touch", "--"]
-            self.local(fields[2]).touch()
+        # Execute the actual publication/abort shell expression against the
+        # local private directory, including the idempotent rename fallback.
+        subprocess.run(
+            ["bash", "-c", command.replace(BRIDGE_DIR, shlex.quote(str(self.root)))],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         return SimpleNamespace(stdout="", stderr="", exit_code=0)
 
     def kill(self):
@@ -597,3 +602,164 @@ def test_persistent_file_upload_failure_uses_command_abort_fallback(tmp_path, mo
             assert env.relay_metrics["relay_errors"] == 1
         finally:
             response.close()
+
+
+def transport_failure():
+    error = ConnectError(Code.UNAVAILABLE, "synthetic SDK stream disconnect")
+    error.__cause__ = ConnectionError("synthetic transport failure")
+    return error
+
+
+@pytest.mark.parametrize("kind", ["data", "end"])
+@pytest.mark.parametrize("after_consumption", [False, True])
+def test_one_rename_retry_recovers_without_reupload_or_replaying_upstream(
+    tmp_path, monkeypatch, kind, after_consumption
+):
+    body = b'data: {"delta":"one"}\n\ndata: [DONE]\n\n'
+
+    class Upstream(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(body)
+
+    with full_relay(tmp_path, Upstream) as (env, client):
+        sandbox = env.sandbox
+        original_run, original_write = sandbox.run, sandbox.write
+        failed = False
+        writes = []
+
+        def record_write(path, data, **kwargs):
+            writes.append(path)
+            original_write(path, data, **kwargs)
+
+        def fail_once(command, **kwargs):
+            nonlocal failed
+            fields = shlex.split(command)
+            if (
+                not failed
+                and fields[:2] == ["mv", "--"]
+                and json.loads(sandbox.local(fields[2]).read_text())["kind"] == kind
+            ):
+                failed = True
+                if after_consumption:
+                    original_run(command, **kwargs)
+                    wait_for(lambda: not sandbox.local(fields[3]).exists())
+                raise transport_failure()
+            return original_run(command, **kwargs)
+
+        monkeypatch.setattr(sandbox, "write", record_write)
+        monkeypatch.setattr(sandbox, "run", fail_once)
+        post(client)
+        response = client.getresponse()
+        assert response.read() == body
+        timing = wait_for(lambda: env.relay_metrics["requests"])[0]
+        assert failed
+        assert timing["outcome"] == "completed"
+        assert timing["frame_rename_retries"] == 1
+        assert timing["bytes_forwarded"] == len(body)
+        assert len(writes) == len(set(writes))
+        assert env.relay_metrics["model_requests"] == 1
+        assert env.relay_metrics["experiment_requests"] == 0
+        assert env.relay_metrics["relay_errors"] == 0
+        assert not list((sandbox.root / "responses").iterdir())
+
+
+def test_persistent_rename_transport_failure_aborts_after_one_retry(tmp_path, monkeypatch):
+    with unfinished_generation(tmp_path) as (env, client, send_token, disconnected, _token):
+        sandbox = env.sandbox
+        original_run = sandbox.run
+        attempts = 0
+
+        def fail_data(command, **kwargs):
+            nonlocal attempts
+            fields = shlex.split(command)
+            if (
+                fields[:2] == ["mv", "--"]
+                and json.loads(sandbox.local(fields[2]).read_text())["kind"] == "data"
+            ):
+                attempts += 1
+                raise transport_failure()
+            return original_run(command, **kwargs)
+
+        monkeypatch.setattr(sandbox, "run", fail_data)
+        post(client)
+        response = client.getresponse()
+        send_token.set()
+        with pytest.raises(http.client.IncompleteRead):
+            response.read()
+        timing = wait_for(lambda: env.relay_metrics["requests"])[0]
+        assert attempts == 2
+        assert disconnected.wait(1)
+        assert timing["outcome"] == "failed"
+        assert timing["error_type"] == "ConnectError"
+        assert timing["error_stage"] == "frame_rename"
+        assert timing["frame_rename_retries"] == 1
+        assert timing["abort_signal_acknowledged"] is True
+        assert env.relay_metrics["model_requests"] == 1
+
+
+@pytest.fixture
+def publisher(tmp_path):
+    (tmp_path / "responses").mkdir()
+    env = object.__new__(TencentEnvironment)
+    env.sandbox = LocalSandbox(tmp_path)
+    env._closed = threading.Event()
+    env._request_lock = threading.Lock()
+    env._metrics_lock = threading.Lock()
+    control = tencent.RelayRequest("model")
+    ident = "a" * 32
+    env._active_requests = {ident: control}
+    return env, ident, control
+
+
+def test_cancel_during_rename_failure_prevents_retry(publisher, monkeypatch):
+    env, ident, control = publisher
+    attempts = []
+
+    def cancel_and_fail(command, **kwargs):
+        attempts.append(command)
+        control.cancel("agent_phase_finished")
+        raise transport_failure()
+
+    monkeypatch.setattr(env.sandbox, "run", cancel_and_fail)
+    with pytest.raises(tencent.RelayCancelled, match="agent_phase_finished"):
+        env._publish_frame(ident, 0, {"kind": "headers"})
+    assert len(attempts) == 1
+    assert "frame_rename_retries" not in control.timing
+
+
+@pytest.mark.parametrize("error_kind", ["timeout", "deadline", "auth", "command"])
+def test_rename_does_not_retry_nontransport_failures(publisher, monkeypatch, error_kind):
+    env, ident, _control = publisher
+    attempts = []
+    original_run = env.sandbox.run
+
+    def fail(command, **kwargs):
+        attempts.append(command)
+        if error_kind == "command":
+            # A real failed mv keeps the uploaded source, so the fallback must
+            # fail too instead of treating any nonzero exit as success.
+            fields = shlex.split(command)
+            return original_run(
+                f"mv -- {shlex.quote(fields[2])} {shlex.quote(fields[3] + '/missing/file')}"
+                f" || test ! -e {shlex.quote(fields[2])}"
+            )
+        if error_kind == "deadline":
+            error = ConnectError(Code.DEADLINE_EXCEEDED, "deadline")
+            error.__cause__ = TimeoutError("deadline")
+        elif error_kind == "auth":
+            error = ConnectError(Code.UNAUTHENTICATED, "denied")
+        else:
+            error = TimeoutError("timeout")
+        raise error
+
+    monkeypatch.setattr(env.sandbox, "run", fail)
+    with pytest.raises((TimeoutError, ConnectError, subprocess.CalledProcessError)):
+        env._publish_frame(ident, 0, {"kind": "headers"})
+    assert len(attempts) == 1

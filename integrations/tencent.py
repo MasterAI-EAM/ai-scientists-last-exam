@@ -30,6 +30,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler
 
+from e2b.envd.rpc import is_transport_failure
 from e2b.sandbox.commands.command_handle import CommandExitException
 from e2b_code_interpreter import Sandbox
 from harbor.agents.installed.qwen_code import QwenCode
@@ -562,12 +563,33 @@ class TencentEnvironment(BaseEnvironment):
         )
         check()
         stage("frame_rename")
-        self.sandbox.commands.run(
-            f"mv -- {shlex.quote(temporary)} {shlex.quote(remote)}",
-            user="root",
-            timeout=RELAY_SDK_TIMEOUT_SECONDS,
-            request_timeout=RELAY_SDK_TIMEOUT_SECONDS,
+        # Only this same-directory rename removes the successfully uploaded temp
+        # file. Its absence therefore proves publication, even if the peer has
+        # already consumed the final file and the SDK lost the acknowledgement.
+        # Never re-upload or replay the upstream request when recovering.
+        command = (
+            f"mv -- {shlex.quote(temporary)} {shlex.quote(remote)}"
+            f" || test ! -e {shlex.quote(temporary)}"
         )
+        for attempt in range(2):
+            check()
+            try:
+                self.sandbox.commands.run(
+                    command,
+                    user="root",
+                    timeout=RELAY_SDK_TIMEOUT_SECONDS,
+                    request_timeout=RELAY_SDK_TIMEOUT_SECONDS,
+                )
+                break
+            except Exception as error:
+                if attempt or not is_transport_failure(error):
+                    raise
+                check()
+                if request is not None:
+                    self._update_timing(
+                        request.timing,
+                        frame_rename_retries=request.timing.get("frame_rename_retries", 0) + 1,
+                    )
         check()
 
     def _abort_stream(self, ident, timing):
