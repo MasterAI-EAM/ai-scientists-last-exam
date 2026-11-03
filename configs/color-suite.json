@@ -1,0 +1,5 @@
+{
+  "tasks": ["color_001", "color_002", "color_003", "color_004"],
+  "model": "qwen3.5-plus",
+  "timeout_sec": 900
+}
