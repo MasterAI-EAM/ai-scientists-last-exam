@@ -44,7 +44,7 @@ QWEN_INTEGRITY = (
 BRIDGE_DIR = "/root/aisle-rpc"
 STREAM_CHUNK_BYTES = 16 * 1024
 STREAM_FLUSH_SECONDS = 0.5
-RELAY_SDK_TIMEOUT_SECONDS = 5
+RELAY_SDK_TIMEOUT_SECONDS = 30
 RELAY_DRAIN_SECONDS = 45
 STREAM_MAX_PENDING_FRAMES = 16
 
@@ -57,6 +57,7 @@ class RelayCancelled(Exception):
 class RelayRequest:
     host: str
     cancelled: threading.Event = field(default_factory=threading.Event)
+    reader_stopped: threading.Event = field(default_factory=threading.Event)
     connection: object | None = None
     response: object | None = None
     reason: str | None = None
@@ -66,6 +67,13 @@ class RelayRequest:
     def cancel(self, reason: str) -> None:
         self.reason = self.reason or reason
         self.cancelled.set()
+        self.stop_reader()
+
+    def stop_reader(self) -> None:
+        # Reader cleanup is not request cancellation. In particular, a failed
+        # SDK frame publication must keep its original exception and terminate
+        # the client's HTTP stream instead of being relabelled as cancelled.
+        self.reader_stopped.set()
         # shutdown interrupts another thread blocked in read1/getresponse. A plain
         # HTTPResponse.close() may instead wait for that reader's buffered lock.
         sockets = [getattr(self.connection, "sock", None)]
@@ -195,6 +203,9 @@ class Handler(BaseHTTPRequestHandler):
                 response = root / "responses" / (ident + ".%08d.json" % sequence)
                 deadline = time.monotonic() + 300
                 while not response.exists():
+                    if (root / "responses" / (ident + ".abort")).exists():
+                        if not started: self.send_error(502)
+                        return
                     if self.disconnected(): return
                     if time.monotonic() >= deadline:
                         if not started: self.send_error(504)
@@ -509,11 +520,24 @@ class TencentEnvironment(BaseEnvironment):
                 request.check()
 
         check()
+        with self._request_lock:
+            request = self._active_requests.get(ident)
+
+        def stage(value):
+            if request is not None:
+                self._update_timing(
+                    request.timing,
+                    transport_stage=value,
+                    pending_frame_sequence=sequence,
+                    pending_frame_kind=frame["kind"],
+                )
+
         # Bound the remote queue too. Checking once per window avoids an SDK
         # round trip per token; at most two windows can be outstanding.
         if sequence and sequence % STREAM_MAX_PENDING_FRAMES == 0:
             while True:
                 check()
+                stage("frame_backpressure")
                 entries = self.sandbox.files.list(
                     f"{BRIDGE_DIR}/responses",
                     user="root",
@@ -529,6 +553,7 @@ class TencentEnvironment(BaseEnvironment):
         check()
         remote = f"{BRIDGE_DIR}/responses/{ident}.{sequence:08d}.json"
         temporary = remote + ".tmp"
+        stage("frame_write")
         self.sandbox.files.write(
             temporary,
             json.dumps(frame),
@@ -536,6 +561,7 @@ class TencentEnvironment(BaseEnvironment):
             request_timeout=RELAY_SDK_TIMEOUT_SECONDS,
         )
         check()
+        stage("frame_rename")
         self.sandbox.commands.run(
             f"mv -- {shlex.quote(temporary)} {shlex.quote(remote)}",
             user="root",
@@ -544,12 +570,36 @@ class TencentEnvironment(BaseEnvironment):
         )
         check()
 
+    def _abort_stream(self, ident, timing):
+        """Terminate independently of sequence numbers or a broken upload API.
+
+        A rename may succeed remotely while its SDK acknowledgement times out.
+        Reusing that sequence for an error frame can therefore leave the client
+        waiting forever for the next sequence. The existence-only marker needs
+        no body, no upload and no sequence acknowledgement.
+        """
+        self._update_timing(timing, abort_signal_attempted=True)
+        try:
+            self.sandbox.commands.run(
+                f"touch -- {shlex.quote(f'{BRIDGE_DIR}/responses/{ident}.abort')}",
+                user="root",
+                timeout=RELAY_SDK_TIMEOUT_SECONDS,
+                request_timeout=RELAY_SDK_TIMEOUT_SECONDS,
+            )
+            self._update_timing(timing, abort_signal_acknowledged=True)
+        except Exception as error:  # noqa: BLE001 - retain type, never SDK private text
+            self._update_timing(
+                timing,
+                abort_signal_acknowledged=False,
+                abort_signal_error_type=type(error).__name__,
+            )
+
     @staticmethod
     def _read_upstream(response, inbox, control):
         """Keep receiving while the separate writer batches sandbox RPC transfers."""
 
         def put(item):
-            while not control.cancelled.is_set():
+            while not control.reader_stopped.is_set():
                 try:
                     inbox.put(item, timeout=0.1)
                     return
@@ -559,7 +609,7 @@ class TencentEnvironment(BaseEnvironment):
         is_sse = response.headers.get("Content-Type", "").lower().startswith("text/event-stream")
         terminal_seen, tail = False, b""
         try:
-            while not control.cancelled.is_set():
+            while not control.reader_stopped.is_set():
                 data = response.read1(STREAM_CHUNK_BYTES)
                 if not data:
                     if response.length not in (None, 0):
@@ -608,10 +658,12 @@ class TencentEnvironment(BaseEnvironment):
         started = time.monotonic()
         try:
             control.check()
+            self._update_timing(timing, transport_stage="upstream_connect")
             connection.request(
                 payload["method"], parsed.path or "/", body=body or None, headers=headers
             )
             control.check()
+            self._update_timing(timing, transport_stage="upstream_headers")
             response = connection.getresponse()
             control.response = response
             control.check()
@@ -674,6 +726,7 @@ class TencentEnvironment(BaseEnvironment):
                     continue
                 if kind == "error":
                     flush()
+                    self._update_timing(timing, transport_stage="upstream_read")
                     raise value
                 if kind == "end":
                     flush()
@@ -687,8 +740,7 @@ class TencentEnvironment(BaseEnvironment):
                 ):
                     flush()
         finally:
-            if reader and reader.is_alive():
-                control.cancel(control.reason or "request_finished")
+            control.stop_reader()
             if response is not None:
                 response.close()
             connection.close()
@@ -744,7 +796,12 @@ class TencentEnvironment(BaseEnvironment):
                 self._update_timing(timing, outcome="cancelled", cancel_reason=control.reason)
             else:
                 self._metric_increment("relay_errors")
-                self._update_timing(timing, outcome="failed", error_type=type(error).__name__)
+                self._update_timing(
+                    timing,
+                    outcome="failed",
+                    error_type=type(error).__name__,
+                    error_stage=timing.get("transport_stage", "request_validation"),
+                )
                 message = (
                     "route_denied" if isinstance(error, PermissionError) else "transport_failed"
                 )
@@ -767,9 +824,14 @@ class TencentEnvironment(BaseEnvironment):
                         )
                         emit({"kind": "end"})
                     else:
-                        emit({"kind": "error"})
-                except Exception:  # noqa: BLE001 - already failed; no private error text
-                    self._update_timing(timing, error_response_not_delivered=True)
+                        self._abort_stream(ident, timing)
+                except Exception as delivery_error:  # noqa: BLE001 - no private SDK error text
+                    self._update_timing(
+                        timing,
+                        error_response_not_delivered=True,
+                        error_response_error_type=type(delivery_error).__name__,
+                    )
+                    self._abort_stream(ident, timing)
         finally:
             self._update_timing(timing, duration_ms=round((time.monotonic() - started) * 1000))
             with self._request_lock:

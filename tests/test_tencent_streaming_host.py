@@ -57,8 +57,11 @@ class LocalSandbox:
 
     def run(self, command, **kwargs):
         fields = shlex.split(command)
-        assert fields[:2] == ["mv", "--"]
-        self.local(fields[2]).replace(self.local(fields[3]))
+        if fields[:2] == ["mv", "--"]:
+            self.local(fields[2]).replace(self.local(fields[3]))
+        else:
+            assert fields[:2] == ["touch", "--"]
+            self.local(fields[2]).touch()
         return SimpleNamespace(stdout="", stderr="", exit_code=0)
 
     def kill(self):
@@ -442,5 +445,155 @@ def test_verifier_boundary_drains_model_requests_before_returning(tmp_path, monk
             assert timing["cancel_reason"] == "agent_phase_finished"
             assert not env._closed.is_set()
             assert not env.sandbox.deleted
+        finally:
+            response.close()
+
+
+@contextmanager
+def unfinished_generation(tmp_path):
+    """The real HTTP upstream remains open when publishing its first token fails."""
+    send_token = threading.Event()
+    disconnected = threading.Event()
+    token = b'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
+
+    class Upstream(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            assert send_token.wait(5)
+            self.wfile.write(token)
+            self.wfile.flush()
+            self.connection.settimeout(5)
+            if self.connection.recv(1) == b"":
+                disconnected.set()
+
+    with full_relay(tmp_path, Upstream) as (env, client):
+        try:
+            yield env, client, send_token, disconnected, token
+        finally:
+            send_token.set()
+
+
+def test_data_upload_timeout_is_failed_and_promptly_ends_the_client(tmp_path, monkeypatch):
+    with unfinished_generation(tmp_path) as (env, client, send_token, disconnected, _token):
+        original_write = env.sandbox.write
+        failed_once = threading.Event()
+
+        def fail_data_write(path, data, **kwargs):
+            if not failed_once.is_set() and json.loads(data).get("kind") == "data":
+                failed_once.set()
+                raise TimeoutError("private upstream details must not enter metrics")
+            original_write(path, data, **kwargs)
+
+        monkeypatch.setattr(env.sandbox, "write", fail_data_write)
+        post(client)
+        response = client.getresponse()
+        assert response.status == 200
+        started = time.monotonic()
+        send_token.set()
+        try:
+            with pytest.raises(http.client.IncompleteRead):
+                response.read()
+            assert time.monotonic() - started < 3
+            timing = wait_for(lambda: env.relay_metrics["requests"])[0]
+            assert failed_once.is_set()
+            assert disconnected.wait(1)
+            assert timing["outcome"] == "failed"
+            assert timing["error_type"] == "TimeoutError"
+            assert timing["error_stage"]
+            assert "cancel_reason" not in timing
+            assert "private upstream details" not in json.dumps(env.relay_metrics)
+            assert env.relay_metrics["relay_errors"] == 1
+        finally:
+            response.close()
+
+
+def test_lost_rename_ack_after_frame_consumption_aborts_without_sequence_deadlock(
+    tmp_path, monkeypatch
+):
+    with unfinished_generation(tmp_path) as (env, client, send_token, disconnected, token):
+        sandbox = env.sandbox
+        original_run = sandbox.run
+        ack_lost = threading.Event()
+
+        def lose_ack_after_data_rename(command, **kwargs):
+            fields = shlex.split(command)
+            data_frame = (
+                fields[:2] == ["mv", "--"]
+                and json.loads(sandbox.local(fields[2]).read_text()).get("kind") == "data"
+            )
+            result = original_run(command, **kwargs)
+            if data_frame and not ack_lost.is_set():
+                wait_for(lambda: not sandbox.local(fields[3]).exists())
+                ack_lost.set()
+                raise TimeoutError("rename completed but its acknowledgement was lost")
+            return result
+
+        monkeypatch.setattr(sandbox, "run", lose_ack_after_data_rename)
+        post(client)
+        response = client.getresponse()
+        assert response.status == 200
+        started = time.monotonic()
+        send_token.set()
+        try:
+            with pytest.raises(http.client.IncompleteRead) as failure:
+                response.read()
+            assert time.monotonic() - started < 3
+            assert failure.value.partial == token
+            assert ack_lost.is_set()
+            assert disconnected.wait(1)
+            timing = wait_for(lambda: env.relay_metrics["requests"])[0]
+            assert timing["outcome"] == "failed"
+            assert timing["error_type"] == "TimeoutError"
+            assert timing["error_stage"]
+            assert env.relay_metrics["relay_errors"] == 1
+        finally:
+            response.close()
+
+
+def test_persistent_file_upload_failure_uses_command_abort_fallback(tmp_path, monkeypatch):
+    with unfinished_generation(tmp_path) as (env, client, send_token, disconnected, _token):
+        sandbox = env.sandbox
+        original_write = sandbox.write
+        original_run = sandbox.run
+        uploads_failed = threading.Event()
+        abort_commands = []
+
+        def fail_all_uploads_after_first_data(path, data, **kwargs):
+            if uploads_failed.is_set() or json.loads(data).get("kind") == "data":
+                uploads_failed.set()
+                raise TimeoutError("SDK file uploads are unavailable")
+            original_write(path, data, **kwargs)
+
+        def record_abort_command(command, **kwargs):
+            fields = shlex.split(command)
+            if fields[:2] == ["touch", "--"]:
+                abort_commands.append(fields[2])
+            return original_run(command, **kwargs)
+
+        monkeypatch.setattr(sandbox, "write", fail_all_uploads_after_first_data)
+        monkeypatch.setattr(sandbox, "run", record_abort_command)
+        post(client)
+        response = client.getresponse()
+        assert response.status == 200
+        started = time.monotonic()
+        send_token.set()
+        try:
+            with pytest.raises(http.client.IncompleteRead):
+                response.read()
+            assert time.monotonic() - started < 3
+            timing = wait_for(lambda: env.relay_metrics["requests"])[0]
+            assert timing["outcome"] == "failed"
+            assert timing["error_type"] == "TimeoutError"
+            assert timing["error_stage"]
+            assert uploads_failed.is_set()
+            assert disconnected.wait(1)
+            assert abort_commands == [f"{BRIDGE_DIR}/responses/{timing['request_id']}.abort"]
+            assert env.relay_metrics["relay_errors"] == 1
         finally:
             response.close()
