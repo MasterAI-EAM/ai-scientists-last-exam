@@ -212,7 +212,9 @@ class TencentEnvironment(BaseEnvironment):
 
     def _validate_definition(self):
         if not (self.environment_dir / "color_tool.py").is_file():
-            raise ValueError("Tencent adapter expects the color_001 environment")
+            raise ValueError(
+                "Tencent adapter requires a color_matching environment with color_tool.py"
+            )
 
     def validate_network_policy_support(self, network_policy=None):
         super().validate_network_policy_support(network_policy)
