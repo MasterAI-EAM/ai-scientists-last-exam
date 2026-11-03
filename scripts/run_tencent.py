@@ -11,6 +11,7 @@ import json
 import os
 import secrets
 import sys
+import tempfile
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,8 +60,17 @@ def simulator_module(task_path: Path = TASK):
 
 
 def download_bundle(url, path):
-    with urlopen(url, timeout=90) as response:
-        path.write_bytes(response.read())
+    # Concurrent trials may populate the same cold cache. Publish only a complete,
+    # integrity-checked bundle so another trial cannot read a partial download.
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f".{path.name}.", delete=False) as f:
+        temporary = Path(f.name)
+    try:
+        with urlopen(url, timeout=90) as response:
+            temporary.write_bytes(response.read())
+        verified_bundle(temporary)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def audit_files(task_path: Path) -> tuple[str, ...]:
@@ -70,6 +80,7 @@ def audit_files(task_path: Path) -> tuple[str, ...]:
         for name in (
             "integrations/tencent.py",
             "scripts/run_tencent.py",
+            "scripts/run_suite.py",
             "scripts/export_harbor.py",
             "scripts/replay_witness.py",
             "scripts/usage.py",
@@ -371,6 +382,8 @@ def summarize(
         "verifier_ledger_valid": diagnostics.get("valid", False),
         "model_requests": relay.get("model_requests", 0),
         "relay_errors": relay.get("relay_errors", 0),
+        "relay_transport": relay.get("transport"),
+        "relay_drained": relay.get("relay_drained"),
         "expected_model_enforced": frozen_model,
         "paid_attempts": len(events),
         "ledger_sealed": history.get("sealed", False),
