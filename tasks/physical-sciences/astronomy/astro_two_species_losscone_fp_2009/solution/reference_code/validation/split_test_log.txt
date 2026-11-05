@@ -1,0 +1,5 @@
+steps: t_ident 269, t_single 269, max |dT| = 0.0e+00
+max_t |Ndot_L/0.7 / Ndot_single - 1| = 6.88e-15
+max_t |Ndot_H/0.3 / Ndot_single - 1| = 5.55e-15
+masses at t = 0+: M_L/0.7 = 0.967096905113724, M_H/0.3 = 0.967096905113724, single = 0.967096905113724
+Ndot_single(100) = 0.116555, Ndot_single(1000) = 0.145070

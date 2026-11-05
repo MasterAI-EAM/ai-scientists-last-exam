@@ -1,6 +1,0 @@
-{
-  "tasks": ["color_001", "color_002", "color_003", "color_004"],
-  "model": "qwen3.8-max",
-  "timeout_sec": 900,
-  "concurrency": 4
-}
