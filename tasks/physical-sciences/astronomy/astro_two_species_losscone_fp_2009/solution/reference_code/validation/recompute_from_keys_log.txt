@@ -1,0 +1,8 @@
+ndotL_max       rebuilt 0.16618  shipped 0.16618  unc 0.00015
+t_ndotL_max     rebuilt 881.75  shipped 881.75  unc 4.6
+ndotH_max       rebuilt 0.025368  shipped 0.025368  unc 8.8e-05
+t_half_H        rebuilt 4827.8  shipped 4827.8  unc 14
+seg_max         rebuilt 0.52265  shipped 0.52265  unc 0.0026
+rate_ratio_1e4  rebuilt 0.05884  shipped 0.05884  unc 0.00027
+F_H_star        rebuilt 0.003069  shipped 0.003069  unc 4.3e-05
+identical to shipped results.json: True (byte for byte: results.json True, results_details.json True)

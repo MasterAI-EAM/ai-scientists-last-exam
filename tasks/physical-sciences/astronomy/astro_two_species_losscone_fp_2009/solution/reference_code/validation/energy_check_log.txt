@@ -1,0 +1,16 @@
+# validation/energy_check.py, re-run at packaging (2026-09-29) on runs/L_120.npz (NE 120 x NR 48, F_H = 0.02, t_end = 16000).
+# Edot_i = energy change rate of species i from relaxation, loss-cone outflow added back; rel = |sum| / |Edot_H|.
+
+## 1. unsegregated initial state (the Stage A check): python validation/energy_check.py runs/L_120.npz 120 48 init
+isotropised init state (runs/L_120.npz): Edot_L = 7.444918e-06  Edot_H = -7.354626e-06  sum = 9.029e-08  (rel 1.23e-02)
+wrong heavy friction ((m_H+m_L)/2):       Edot_L = 7.444918e-06  Edot_H = -3.651838e-06  sum = 3.793e-06  (rel 1.04e+00)
+
+## 2. state at t = 16000 (segregated; 97 % of the heavies captured): ... 120 48 final
+isotropised final state (runs/L_120.npz): Edot_L = 1.097671e-07  Edot_H = -3.064728e-07  sum = -1.967e-07  (rel 6.42e-01)
+wrong heavy friction ((m_H+m_L)/2):       Edot_L = 1.097671e-07  Edot_H = 2.514655e-07  sum = 3.612e-07  (rel 1.44e+00)
+
+## 3. as 2 with the heavies set to zero (species 1): the sum is the residual of the L-L self-relaxation alone (rel column meaningless): ... 120 48 final 1
+isotropised final state (runs/L_120.npz): Edot_L = -2.738535e-07  Edot_H = 0.000000e+00  sum = -2.739e-07  (rel 2.74e+293)
+
+## 4. as 1 with the heavies set to zero: ... 120 48 init 1
+isotropised init state (runs/L_120.npz): Edot_L = -1.237837e-07  Edot_H = 0.000000e+00  sum = -1.238e-07  (rel 1.24e+293)
