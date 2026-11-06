@@ -27,9 +27,7 @@
 # everything below the marker.
 #
 # The required headings are read from task-readme-template.md rather than hardcoded,
-# so the template is the single source of truth for their names. Keep
-# .github/workflows/task-pr-overview.yml's README_SECTIONS map in step if one is
-# renamed -- that is what puts these sections in the /overview reviewer table.
+# so the template is the single source of truth for their names.
 #
 # Length is advisory. A section over its soft cap (400 / 300 / 600 words, about
 # twice the merged median) WARNs and the check still passes, because

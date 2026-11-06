@@ -58,14 +58,13 @@ filter_canary_files() {
 # Get list of files to check
 # Arguments: task directories (e.g., tasks/my-task) or no args to check all
 # The root task-*-template.* files seed real task files, so a missing canary
-# there propagates: task-hint-template.md is copied whole into a task's
-# authoring/hint.md, and task-template.toml seeds task.toml via `harbor tasks
-# init --metadata-template`. Nothing else covers them -- the scans below are
+# there propagates: task-template.toml seeds task.toml via `harbor tasks
+# init --metadata-template`. Nothing else covers the root templates; scans are
 # rooted at tasks/ -- so they are appended to every invocation, whether the
 # caller passed task dirs or not. Guarded by -f so running from another cwd
 # degrades to checking nothing rather than failing on absent paths.
 root_templates() {
-    for t in task-template.toml task-readme-template.md task-hint-template.md; do
+    for t in task-template.toml task-readme-template.md; do
         [ -f "$t" ] && echo "$t"
     done
     return 0
