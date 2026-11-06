@@ -1,0 +1,4 @@
+harbor==0.25.0
+PyYAML>=6.0
+toml>=0.10.2
+zstandard>=0.23.0
