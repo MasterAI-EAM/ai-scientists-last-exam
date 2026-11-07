@@ -1,0 +1,88 @@
+{
+  "package": "@lobehub/icons-static-svg",
+  "version": "1.102.0",
+  "package_license": "MIT",
+  "repository": "https://github.com/lobehub/lobe-icons",
+  "registry_metadata": "https://registry.npmjs.org/@lobehub/icons-static-svg/1.102.0",
+  "tarball": "https://registry.npmjs.org/@lobehub/icons-static-svg/-/icons-static-svg-1.102.0.tgz",
+  "integrity_verified": "sha512-3Na6S2kdslmsfnBjuL0PQWQClrmuWe/pWThRN/3J2VzPg5MhVghy8knVu7kd1/lqA9ydZBvwmnKLzuBo0Wm6Qw==",
+  "files": [
+    {
+      "file": "codex.svg",
+      "brand": "Codex",
+      "package_member": "package/icons/codex-color.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/codex-color.svg",
+      "sha256": "4a2f43ce46b5b6e3722c95088f88d26ef91e6a8c2e598e70642a1c54367386e4",
+      "bytes": 1769,
+      "note": "Dedicated Codex brand icon; not an OpenAI-logo substitute."
+    },
+    {
+      "file": "openai.svg",
+      "brand": "OpenAI / GPT",
+      "package_member": "package/icons/openai.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/openai.svg",
+      "sha256": "a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186",
+      "bytes": 1687,
+      "note": "OpenAI brand logo used alongside GPT model text."
+    },
+    {
+      "file": "claude.svg",
+      "brand": "Claude",
+      "package_member": "package/icons/claude-color.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/claude-color.svg",
+      "sha256": "a3101f3047a119aa11825ad9369510f0c472428c8c52d420e31bc62db44a8364",
+      "bytes": 1696,
+      "note": "Claude brand icon."
+    },
+    {
+      "file": "gemini.svg",
+      "brand": "Gemini",
+      "package_member": "package/icons/gemini-color.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/gemini-color.svg",
+      "sha256": "8ab0a9bafec11f7e69bcb9fc4ffd8f1bc927d1ddcbbb6ff36dee5ae8b5a9d602",
+      "bytes": 2836,
+      "note": "Gemini brand icon."
+    },
+    {
+      "file": "deepseek.svg",
+      "brand": "DeepSeek",
+      "package_member": "package/icons/deepseek-color.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/deepseek-color.svg",
+      "sha256": "deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439",
+      "bytes": 2164,
+      "note": "DeepSeek brand icon."
+    },
+    {
+      "file": "qwen.svg",
+      "brand": "Qwen",
+      "package_member": "package/icons/qwen-color.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/qwen-color.svg",
+      "sha256": "a158a0e3ed5b541e4f91384ece02c3acf0a0d81b7b11a46d77bafb248b09e32c",
+      "bytes": 1016,
+      "note": "Qwen brand icon."
+    },
+    {
+      "file": "kimi.svg",
+      "brand": "Kimi",
+      "package_member": "package/icons/kimi-color.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/kimi-color.svg",
+      "sha256": "0bdb95375d7c6e90a1850e91cd36770da2bc98fa33ec2d783f4a8fed027da85f",
+      "bytes": 781,
+      "note": "Kimi brand icon."
+    },
+    {
+      "file": "glm.svg",
+      "brand": "GLM / Z.ai",
+      "package_member": "package/icons/zai.svg",
+      "source_url": "https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/zai.svg",
+      "sha256": "e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1",
+      "bytes": 319,
+      "note": "Z.ai provider brand icon for GLM; this is not a distinct GLM model logo."
+    }
+  ],
+  "usage_notes": [
+    "SVG files are extracted verbatim; no package code was executed.",
+    "Some original SVG files use currentColor. Inline SVG can inherit the intended foreground colour; external img SVG will not inherit its parent CSS colour.",
+    "Brand names identify their respective owners; model and agent names remain distinct."
+  ]
+}

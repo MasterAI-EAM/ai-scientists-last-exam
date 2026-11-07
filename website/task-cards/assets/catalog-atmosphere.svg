@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1060" viewBox="0 0 1600 1060">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1">
+      <stop stop-color="#070e1b"/>
+      <stop offset=".64" stop-color="#0b192b"/>
+      <stop offset="1" stop-color="#0a1423"/>
+    </linearGradient>
+    <radialGradient id="nebula">
+      <stop stop-color="#225484" stop-opacity=".64"/>
+      <stop offset="1" stop-color="#163957" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="atom" cx=".31" cy=".27" r=".76">
+      <stop stop-color="#d5eeff"/>
+      <stop offset=".24" stop-color="#81b8dc"/>
+      <stop offset=".65" stop-color="#284d76"/>
+      <stop offset="1" stop-color="#142747"/>
+    </radialGradient>
+    <radialGradient id="accentAtom" cx=".3" cy=".25" r=".77">
+      <stop stop-color="#c4c6f9"/>
+      <stop offset=".3" stop-color="#797fb8"/>
+      <stop offset=".7" stop-color="#3b375d"/>
+      <stop offset="1" stop-color="#211f37"/>
+    </radialGradient>
+    <linearGradient id="limb" x2="1" y2="0">
+      <stop stop-color="#367abd" stop-opacity="0"/>
+      <stop offset=".48" stop-color="#438fbf" stop-opacity=".18"/>
+      <stop offset=".86" stop-color="#68bff3" stop-opacity=".52"/>
+      <stop offset="1" stop-color="#5fbdf1" stop-opacity=".12"/>
+    </linearGradient>
+    <linearGradient id="crystal" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#76c7f8" stop-opacity="0"/>
+      <stop offset="1" stop-color="#76c7f8" stop-opacity=".62"/>
+    </linearGradient>
+    <pattern id="stars" width="293" height="269" patternUnits="userSpaceOnUse">
+      <path d="M27 35h.01m108-15h.01m119 48h.01M63 118h.01m95 57h.01m102 36h.01M18 243h.01m78-19h.01m104 27h.01"
+            fill="none" stroke="#8ac5f2" stroke-width="1.4" stroke-linecap="round" opacity=".36"/>
+      <path d="M105 76h.01m123 63h.01M47 174h.01" fill="none" stroke="#c9e9ff" stroke-width="1.1"
+            stroke-linecap="round" opacity=".57"/>
+    </pattern>
+    <filter id="air" x="-.1" y="-.5" width="1.2" height="2">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+    <g id="unitCell">
+      <path d="M0 25 51 0l52 25-52 25zM0 25v53l51 25 52-25V25M51 50v53M51 0v53M0 78l51-25 52 25"
+            fill="none" stroke="url(#crystal)" stroke-width="1.2"/>
+      <circle cx="51" cy="0" r="2.3" fill="#90d7ff" opacity=".66"/>
+      <circle cx="103" cy="25" r="1.8" fill="#90d7ff" opacity=".48"/>
+    </g>
+  </defs>
+  <path fill="url(#sky)" d="M0 0h1600v1060H0z"/>
+  <ellipse cx="1260" cy="290" rx="720" ry="440" fill="url(#nebula)"/>
+  <ellipse cx="1500" cy="751" rx="684" ry="224" fill="url(#nebula)" opacity=".88"/>
+  <path fill="url(#stars)" d="M0 0h1600v990H0z"/>
+  <path d="M-40 917C413 816 959 640 1640 708" fill="none" stroke="url(#limb)" stroke-width="47" filter="url(#air)"/>
+  <path d="M-40 917C413 816 959 640 1640 708" fill="none" stroke="url(#limb)" stroke-width="2"/>
+  <path d="M-40 923C413 821 959 643 1640 713" fill="none" stroke="url(#limb)" opacity=".34"/>
+  <g opacity=".67" transform="translate(1150 15)">
+    <g fill="none" stroke="#8bb6d9" stroke-width="2.4" stroke-linecap="round">
+      <path d="m65 120 50-19 47 29-6 51-52 17-42-28zM115 101l3-48 51-26 51 22 42-27M162 130l57-16 42 31 50-17M156 181l32 28M65 120l-37-22M104 198l-17 33"/>
+      <path d="m74 126 38-15m39 24-5 41m-48 9-28-18" opacity=".52"/>
+    </g>
+    <g fill="url(#atom)" stroke="#9fcee9" stroke-width=".7">
+      <circle cx="65" cy="120" r="7"/><circle cx="115" cy="101" r="10"/>
+      <circle cx="162" cy="130" r="9"/><circle cx="156" cy="181" r="8"/>
+      <circle cx="104" cy="198" r="8"/><circle cx="62" cy="170" r="7"/>
+      <circle cx="28" cy="98" r="4"/><circle cx="87" cy="231" r="4"/>
+      <circle cx="188" cy="209" r="4"/><circle cx="169" cy="27" r="5"/>
+      <circle cx="220" cy="49" r="7"/><circle cx="262" cy="22" r="4"/>
+      <circle cx="261" cy="145" r="5"/><circle cx="311" cy="128" r="4"/>
+    </g>
+    <g fill="url(#accentAtom)" stroke="#aeb9df" stroke-width=".7">
+      <circle cx="118" cy="53" r="9"/><circle cx="219" cy="114" r="9"/>
+    </g>
+  </g>
+  <g opacity=".72" transform="translate(1410 759)">
+    <use href="#unitCell" x="51" y="0"/><use href="#unitCell" x="102" y="25"/>
+    <use href="#unitCell" x="0" y="78"/><use href="#unitCell" x="51" y="53"/>
+    <use href="#unitCell" x="102" y="78"/><use href="#unitCell" x="153" y="53"/>
+  </g>
+</svg>

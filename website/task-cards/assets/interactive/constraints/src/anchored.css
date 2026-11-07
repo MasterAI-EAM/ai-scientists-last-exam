@@ -1,0 +1,25 @@
+/* These cards are projected from experiment coordinates, inside the movie. */
+#scene{overflow:hidden;background:radial-gradient(ellipse at 51% 52%,#eee6f4,#e4daed)}
+#scene #detail-card,#scene #spectrum-card{position:absolute;transform:translate(-50%,-50%);z-index:7;pointer-events:none;border-radius:13px;box-shadow:0 10px 22px #5842691b;background:#fefcffef;border:1px solid #dfd1e7;border-top:2px solid #ad8dc1;overflow:hidden}
+#scene #detail-card{width:278px;height:178px}
+#scene #detail-card .card-heading{padding:10px 13px 0}
+#scene #detail-card .eyebrow{font-size:8px;letter-spacing:.9px}
+#scene #detail-step{font-size:7px;padding:3px 6px}
+#scene #detail-title{font:15px/1.2 DM;margin:6px 13px 0;letter-spacing:-.3px;color:#655073}
+#scene #detail-canvas{width:276px;height:103px;margin-top:-2px}
+#scene #detail-caption{font:8px/1.35 DM;text-align:left;margin:0 13px;color:#9681a4;max-width:250px}
+#scene #detail-legend{display:none}
+#scene #spectrum-card{width:354px;height:250px;border-top-color:#87aaa8}
+#scene #spectrum-card .card-heading{padding:11px 13px 0}
+#scene #spectrum-card .eyebrow{font-size:8px;letter-spacing:.9px}
+#scene #spectrum-card .example-pill{font-size:6px;letter-spacing:.5px}
+#scene #spectrum-card h2{font:16px/1.2 DM;margin:8px 13px 0;color:#665076;letter-spacing:-.2px}
+#scene #spectrum-canvas{width:352px;height:176px;margin-top:3px}
+#scene #spectrum-card>p{font:7px/1.4 DM;margin:0 13px;color:#9e88aa}
+#scene #spectrum-card.acquiring{border-color:#87aaa8;box-shadow:0 0 0 3px #b8d2c942,0 10px 22px #5842691b}
+#callout-leaders{position:absolute;left:0;top:0;width:1664px;height:654px;z-index:5;pointer-events:none}
+.station-tag{background:#fefcffed;border-top:2px solid #ac89bf;box-shadow:0 9px 20px #6b4f7b19;font-family:DM;padding:10px 13px;color:#60516e;z-index:6}
+.station-tag b{font-size:10px;letter-spacing:.75px;margin-bottom:6px}
+.station-tag{font-size:11px}
+#scene-bottom{font-size:8px}
+.station-tag.judgement-focus{padding:13px 20px;font-size:14px;background:#fffdfef5;border-top-width:3px;box-shadow:0 9px 24px #73568029}.station-tag.judgement-focus b{font-size:10px;letter-spacing:.7px}

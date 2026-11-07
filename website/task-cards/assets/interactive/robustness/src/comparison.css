@@ -1,0 +1,35 @@
+#outcome-comparison{position:absolute;inset:0;pointer-events:none;z-index:4}
+.comparison-heading{position:absolute;white-space:nowrap;color:#735384;transform:translateY(-100%)}
+.comparison-heading b{display:block;font-size:13px;letter-spacing:.8px;font-weight:650}
+.comparison-heading span{display:block;font-size:11px;margin-top:7px;color:#8f789f}
+.outcome-card{position:absolute;width:188px;height:147px;transform:translate(-50%,0);padding:11px 12px 10px;border:1px solid #d7c6e1;border-top:3px solid #ae8fc1;border-radius:12px;background:#fffdfef5;box-shadow:0 8px 17px #624d7015;color:#604670}
+.outcome-kicker{display:flex;align-items:center;justify-content:space-between;font-size:8px;letter-spacing:.6px;color:#927b9f}
+.outcome-status{font-size:7px;letter-spacing:.4px;color:#a18bab}
+.outcome-card h3{font:600 17px/1.2 DM;margin:7px 0 4px;letter-spacing:-.3px;white-space:nowrap}
+.outcome-command{font-size:11px;color:#765986}
+.outcome-result{display:flex;align-items:center;gap:10px;margin:8px 0 7px}
+.sample-swatch{width:34px;height:30px;border-radius:7px;border:1px solid #b6a2c635;box-shadow:inset 0 1px 3px #ffffff4d;flex:none}
+.outcome-result strong{font:600 22px/1 DM;display:block;color:#6d507f;letter-spacing:-.5px}
+.signal-label{display:block;font-size:9px;color:#917c9e;margin-top:3px}
+.outcome-track{height:4px;border-radius:3px;background:#ece4f1;overflow:hidden}
+.outcome-track i{height:100%;display:block;width:0;background:#9b85bc;border-radius:3px}
+.outcome-foot{font-size:8px;color:#887295;margin:6px 0 0;white-space:nowrap}
+.outcome-card.changed{border-top-color:#c0839a;background:#fff9fcf8}
+.outcome-card.changed .outcome-result strong{color:#a4607e}
+.outcome-card.changed .outcome-track i{background:#c18da3}
+.outcome-card.measured .outcome-status{color:#6d917d}
+.outcome-card.changed .outcome-status{color:#ad708b}
+.outcome-card.pending{background:#f5f0f8cc;border-top-color:#d1c2dc;border-color:#ded2e6;box-shadow:none;color:#9e88ac}
+.outcome-card.pending h3{color:#a18aad}
+.outcome-card.pending .outcome-command{color:#a491af}
+.outcome-card.acquiring{border-color:#b59ac8;box-shadow:0 0 0 3px #bfa2d024}
+.comparison-target{position:absolute;display:flex;align-items:center;gap:7px;font-size:10px;color:#937ca1;transform:translate(-50%,-100%);white-space:nowrap}
+.comparison-target i{height:23px;width:23px;border:3px solid #e3d8ed;background:#9b85bc;border-radius:50%}
+.comparison-caption{position:absolute;transform:translateX(-50%);font-size:8px;letter-spacing:.1px;color:#9a85a8;white-space:nowrap}
+.outcome-card{height:122px;padding:9px 11px 8px}
+.outcome-card h3{font-size:16px;margin:5px 0 3px}
+.outcome-result{margin:5px 0 5px;gap:9px}
+.outcome-result strong{font-size:21px}
+.sample-swatch{height:27px;width:31px}
+.signal-label{font-size:8px;margin-top:2px}
+.outcome-foot{margin-top:4px;font-size:8px}
