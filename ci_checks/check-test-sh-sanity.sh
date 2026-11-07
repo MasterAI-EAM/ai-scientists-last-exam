@@ -47,12 +47,8 @@ try:
         data = tomllib.load(f)
 except Exception:
     sys.exit(1)
-# TB3 also treats a present [verifier.environment] table as proof of separate
-# mode. That inference does not hold here: PR #1528 gave every task a
-# [verifier.environment] purely to set network_mode = "no-network", shared and
-# separate alike, so accepting it would exempt every task unconditionally --
-# including ci_checks/test-tasks/fail-static-test-sh-sanity, which exists to
-# fail this check. Only the explicit mode declaration counts.
+# A [verifier.environment] table can set network policy in either shared or
+# separate mode. Only the explicit environment_mode declaration proves isolation.
 verifier = data.get("verifier", {})
 if verifier.get("environment_mode") == "separate":
     sys.exit(0)
