@@ -49,6 +49,7 @@ SIGNING_KEY = b""
 LAB_DELAY = (10.0, 15.0)
 SIM_LAB = True
 LOCK = threading.Lock()
+NOTIFY = threading.Condition()
 FAULT_DROP_SUBMIT = 0  # test hook: drop the response of the first N accepted submits
 
 
@@ -82,6 +83,9 @@ def init_db() -> None:
         for name in ('sealed_ledger', 'sealed_signature'):
             if name not in columns:
                 c.execute(f'ALTER TABLE runs ADD COLUMN {name} TEXT')
+        for name, declaration in [('execution_mode', "TEXT NOT NULL DEFAULT 'suspend'"), ('container_id', 'TEXT')]:
+            if name not in columns:
+                c.execute(f'ALTER TABLE runs ADD COLUMN {name} {declaration}')
         ticket_columns = {r['name'] for r in c.execute('PRAGMA table_info(tickets)')}
         for name in ('claim_id', 'claimed_at'):
             if name not in ticket_columns:
@@ -201,6 +205,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(401, {"error": "bad admin token"})
                 parts = self.path.strip("/").split("/")
                 if parts[:2] == ["admin", "runs"] and len(parts) == 3:
+                    if not c.execute('SELECT 1 FROM runs WHERE run_id=?', (parts[2],)).fetchone():
+                        return self._send(404, {'error': 'unknown run'})
                     return self._send(200, run_view(c, parts[2], False))
                 if parts[:2] == ["admin", "runs"] and len(parts) == 4 and parts[3] == "ledger":
                     return self._send(200, ledger(c, parts[2]))
@@ -217,6 +223,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         try:
             body = self._body()
+            # Wait outside the mutation lock and outside a SQLite transaction.
+            parts = self.path.strip('/').split('/')
+            if len(parts) == 4 and parts[:2] == ['v1', 'tickets'] and parts[3] == 'wait':
+                with connect() as c: rid = self._agent_run(c)
+                if not rid: return self._send(401, {'error': 'bad token'})
+                seconds = body.get('timeout_sec', 20)
+                if type(seconds) not in (int, float) or not 0 <= seconds <= 20:
+                    return self._send(400, {'error': 'timeout_sec must be between 0 and 20'})
+                deadline = time.monotonic() + seconds
+                while True:
+                    with LOCK, connect() as c:
+                        # Recheck token after each sleep: rotation revokes existing waiters.
+                        if self._agent_run(c) != rid:
+                            return self._send(401, {'error': 'bad token'})
+                        code, result = wait_result(c, rid, int(parts[2]))
+                    if code != 202 or time.monotonic() >= deadline:
+                        return self._send(code, result)
+                    with NOTIFY: NOTIFY.wait(min(.5, max(0, deadline - time.monotonic())))
             with LOCK, connect() as c:
                 if self.path == "/v1/tickets":
                     global FAULT_DROP_SUBMIT
@@ -237,6 +261,8 @@ class Handler(BaseHTTPRequestHandler):
                 parts = self.path.strip("/").split("/")
                 if parts == ["admin", "runs"]:
                     return self._send(*create_run(c, body))
+                if parts[:2] == ["admin", "runs"] and len(parts) == 4 and parts[3] == "bind-container":
+                    return self._send(*bind_container(c, parts[2], body))
                 if parts[:2] == ["admin", "runs"] and len(parts) == 4 and parts[3] == "deliver":
                     return self._send(*deliver(c, parts[2], body))
                 if parts[:2] == ["admin", "runs"] and len(parts) == 4 and parts[3] == "seal":
@@ -257,19 +283,74 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def bind_container(c, run_id, body):
+    """Bind once using the trusted worker, never an agent-supplied container ID."""
+    cid = body.get('container_id')
+    if not isinstance(cid, str) or len(cid) != 64 or any(x not in '0123456789abcdef' for x in cid):
+        return 400, {'error': 'full Docker container ID required'}
+    c.execute('BEGIN IMMEDIATE')
+    run = c.execute('SELECT * FROM runs WHERE run_id=?', (run_id,)).fetchone()
+    if not run or run['execution_mode'] != 'blocking' or run['sealed'] or (run['container_id'] and run['container_id'] != cid):
+        c.execute('ROLLBACK')
+        return 409, {'error': 'run cannot be bound or already belongs to another container'}
+    replay = bool(run['container_id'])
+    if not replay:
+        c.execute('UPDATE runs SET container_id=? WHERE run_id=?', (cid, run_id))
+        append_event(c, run_id, 'container_bound', {'container_id': cid, 'budget': run['budget']})
+    c.execute('COMMIT')
+    return 200, {'container_id': cid, 'replayed': replay}
+
+
+def wait_result(c, run_id, seq):
+    """Durable delivery: a lost HTTP response can be replayed by ticket number."""
+    c.execute('BEGIN IMMEDIATE')
+    run = c.execute('SELECT * FROM runs WHERE run_id=?', (run_id,)).fetchone()
+    ticket = c.execute('SELECT * FROM tickets WHERE seq=? AND run_id=?', (seq, run_id)).fetchone()
+    if not run or run['execution_mode'] != 'blocking' or not run['container_id']:
+        c.execute('ROLLBACK')
+        return 409, {'error': 'blocking wait requires a bound blocking run'}
+    if not ticket:
+        c.execute('ROLLBACK')
+        return 404, {'error': 'unknown experiment for this run'}
+    if ticket['status'] == 'cancelled':
+        c.execute('ROLLBACK')
+        return 409, {'error': 'experiment cancelled', 'ticket_id': seq}
+    if ticket['status'] not in ('done', 'failed'):
+        c.execute('ROLLBACK')
+        return 202, {'status': 'waiting', 'ticket_id': seq}
+    replay = bool(ticket['delivered_at'])
+    if not replay:
+        if run['sealed']:
+            c.execute('ROLLBACK')
+            return 409, {'error': 'run sealed before delivery'}
+        c.execute('UPDATE tickets SET delivered_at=? WHERE seq=?', (now(), seq))
+        append_event(c, run_id, 'ticket_delivered', {'seq': seq})
+        append_event(c, run_id, 'blocking_result_returned', {'seq': seq, 'container_id': run['container_id']})
+        outstanding = c.execute("SELECT 1 FROM tickets WHERE run_id=? AND delivered_at IS NULL AND status!='cancelled'", (run_id,)).fetchone()
+        if not outstanding and not run['finished']:
+            c.execute('UPDATE runs SET submission_open=1 WHERE run_id=?', (run_id,))
+    ticket = c.execute('SELECT * FROM tickets WHERE seq=?', (seq,)).fetchone()
+    result = {'ticket': ticket_view(ticket, True), 'replayed': replay, 'remaining': run['budget'] - run['used']}
+    c.execute('COMMIT')
+    return 200, result
+
+
 def create_run(c, body: dict):
+    mode = body.get("execution_mode", "suspend")
+    if mode not in ("suspend", "blocking"):
+        return 400, {"error": "execution_mode must be suspend or blocking"}
     run_id = body.get("run_id") or secrets.token_hex(8)
     c.execute("BEGIN IMMEDIATE")
     existing = c.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
     if existing:
         c.execute("ROLLBACK")
-        if existing['task'] != body.get('task', '') or existing['budget'] != int(body.get('budget', 5)):
+        if existing['task'] != body.get('task', '') or existing['budget'] != int(body.get('budget', 5)) or existing['execution_mode'] != mode:
             return 409, {'error': 'run exists with a different task/budget'}
         return 200, {'run_id': run_id, 'token': existing['token'], 'replayed': True}
     token = secrets.token_hex(24)
-    c.execute("INSERT INTO runs(run_id, token, task, budget, created_at, chain_head) VALUES (?,?,?,?,?,?)",
-              (run_id, token, body.get("task", ""), int(body.get("budget", 5)), now(), ""))
-    append_event(c, run_id, "run_created", {"task": body.get("task", ""), "budget": int(body.get("budget", 5))})
+    c.execute("INSERT INTO runs(run_id, token, task, budget, created_at, chain_head, execution_mode) VALUES (?,?,?,?,?,?,?)",
+              (run_id, token, body.get("task", ""), int(body.get("budget", 5)), now(), "", mode))
+    append_event(c, run_id, "run_created", {"task": body.get("task", ""), "budget": int(body.get("budget", 5)), "execution_mode": mode})
     c.execute("COMMIT")
     return 200, {"run_id": run_id, "token": token}
 
@@ -293,6 +374,8 @@ def submit(c, run_id, body: dict):
     reason = None
     if r["sealed"] or r["finished"]:
         reason = "the run has finished"
+    elif r['execution_mode'] == 'blocking' and not r['container_id']:
+        reason = 'blocking container is not registered'
     elif not r["submission_open"]:
         reason = "a submission is already pending for this round; end your turn and wait to be resumed"
     elif r["used"] >= r["budget"]:
@@ -312,7 +395,7 @@ def submit(c, run_id, body: dict):
                     (run_id, round_no, key, "expr", json.dumps({"expr": expr}), str(body.get("reasoning", ""))[:4000],
                      "accepted", now(), due))
     c.execute("UPDATE runs SET used=used+1, submission_open=0 WHERE run_id=?", (run_id,))
-    append_event(c, run_id, "ticket_accepted", {"seq": cur.lastrowid, "round": round_no, "expr": expr, "idem_key": key})
+    append_event(c, run_id, "ticket_accepted", {"seq": cur.lastrowid, "round": round_no, "expr": expr, "idem_key": key, "container_id": r["container_id"], "budget": r["budget"]})
     t = c.execute("SELECT * FROM tickets WHERE seq=?", (cur.lastrowid,)).fetchone()
     c.execute("COMMIT")
     return 200, {"replayed": False, "ticket": ticket_view(t, True)}
@@ -333,7 +416,7 @@ def finish(c, run_id, body: dict):
     resumed = set()
     for event in c.execute("SELECT body FROM events WHERE run_id=? AND type='resume_started'", (run_id,)):
         resumed.update(json.loads(event['body'])['seqs'])
-    if delivered - resumed:
+    if r['execution_mode'] == 'suspend' and delivered - resumed:
         c.execute('ROLLBACK')
         return 409, {'error': 'delivered results have not entered a resumed agent phase'}
     if r["finished"]:
@@ -427,6 +510,7 @@ def complete(c, seq: int, body: dict):
               (status, result, error, now(), seq))
     append_event(c, t["run_id"], "ticket_completed", {"seq": seq, "status": status, "result": result, "error": error})
     c.execute("COMMIT")
+    with NOTIFY: NOTIFY.notify_all()
     return 200, {"seq": seq, "status": status, "replayed": False}
 
 

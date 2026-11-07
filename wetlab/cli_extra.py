@@ -216,6 +216,22 @@ async def _export(environment,source,target):
         shutil.copytree(staged,target,dirs_exist_ok=True)
 
 
+def openclaw_envelope(raw):
+    """Decode a native envelope even when the CLI appends non-JSON diagnostics."""
+    decoder=json.JSONDecoder()
+    for line in raw.splitlines(keepends=True):
+        # Native pretty-printed envelopes begin at a line boundary. Decode the
+        # whole object so braces inside model/tool text cannot become metadata.
+        if line.lstrip().startswith('{'):
+            offset=raw.find(line)
+            try:value,_=decoder.raw_decode(raw[offset:].lstrip())
+            except ValueError:continue
+            meta=value.get('meta') if isinstance(value,dict) else None
+            if isinstance(meta,dict) and isinstance((meta.get('agentMeta') or {}).get('sessionId'),str):
+                return value
+    return None
+
+
 def install(state,saved=None):
     name=state['agent']
     restored=history(Path(saved['session_path']),name)[0] if saved else None
@@ -274,10 +290,19 @@ def install(state,saved=None):
                 return await original_install(self,environment)
             finally:self._version=requested
         OpenClaw.install=install_native
+        original_json=OpenClaw._load_json_object
+        OpenClaw._load_json_object=staticmethod(lambda raw:original_json(raw) or openclaw_envelope(raw))
         original_config=OpenClaw._build_full_openclaw_config
         def config(self):
             value=original_config(self)
-            value.setdefault('agents',{}).setdefault('defaults',{})['skipBootstrap']=True
+            defaults=value.setdefault('agents',{}).setdefault('defaults',{})
+            defaults['skipBootstrap']=True
+            if state.get('execution_mode') == 'blocking':
+                defaults['timeoutSeconds']=int(state['blocking_agent_timeout_sec'])
+                tools=value.setdefault('tools',{})
+                tools.setdefault('exec',{})['timeoutSeconds']=int(state['wait_timeout_sec']) + 30
+                deny=tools.setdefault('deny',[])
+                if 'process' not in deny:deny.append('process')
             return value
         OpenClaw._build_full_openclaw_config=config
         original_exec=OpenClaw.exec_as_agent

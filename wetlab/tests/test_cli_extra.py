@@ -140,7 +140,7 @@ def test_openclaw_uses_supported_headless_bootstrap_and_canonical_state_config(t
     import asyncio
     from types import SimpleNamespace
     from harbor.agents.installed.openclaw import OpenClaw
-    tracked=('install','DEFAULT_SETUP_TIMEOUT_SEC','get_version_command','parse_version','_build_full_openclaw_config','exec_as_agent','run','build_cli_flags')
+    tracked=('_load_json_object','install','DEFAULT_SETUP_TIMEOUT_SEC','get_version_command','parse_version','_build_full_openclaw_config','exec_as_agent','run','build_cli_flags')
     with monkeypatch.context() as m:
         for name in tracked:m.setattr(OpenClaw,name,getattr(OpenClaw,name))
         calls=[]
@@ -176,7 +176,7 @@ def test_openclaw_preinstalled_probe_requires_exact_native_build_and_preserves_v
     import asyncio
     from types import SimpleNamespace
     from harbor.agents.installed.openclaw import OpenClaw
-    tracked=('install','DEFAULT_SETUP_TIMEOUT_SEC','get_version_command','parse_version','_build_full_openclaw_config','exec_as_agent','run','build_cli_flags')
+    tracked=('_load_json_object','install','DEFAULT_SETUP_TIMEOUT_SEC','get_version_command','parse_version','_build_full_openclaw_config','exec_as_agent','run','build_cli_flags')
     with monkeypatch.context() as m:
         for name in tracked:m.setattr(OpenClaw,name,getattr(OpenClaw,name))
         installed=[]
@@ -192,3 +192,11 @@ def test_openclaw_preinstalled_probe_requires_exact_native_build_and_preserves_v
         env.native='OpenClaw 2026.11.1 (deadbee)'
         asyncio.run(agent.install(env))
         assert installed==['2026.11.1'] and agent._version is None
+
+
+def test_openclaw_envelope_accepts_trailing_cli_diagnostics_without_inventing_identity():
+    from wetlab.cli_extra import openclaw_envelope
+    native={'meta':{'agentMeta':{'sessionId':'native-session-123'}},'payloads':[{'text':'answer'}]}
+    assert openclaw_envelope(json.dumps(native,indent=2)+'\n[diagnostic] cleanup complete\n')==native
+    assert openclaw_envelope('invalid stdout') is None
+    assert openclaw_envelope('{"meta": {"agentMeta": {}}}\n[diagnostic] done') is None

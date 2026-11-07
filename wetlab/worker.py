@@ -39,6 +39,9 @@ def main():
         if effective.get('allow_agent_host'):
             sys.argv.extend(['--allow-agent-host',effective['allow_agent_host']])
     install_integrations(state,saved=saved)
+    try:from .blocking import configure_worker as configure_blocking
+    except ImportError:from blocking import configure_worker as configure_blocking
+    configure_blocking(state)
     if state['agent'] == 'hermes':
         # Harbor 0.25 uses the removed `hermes version` subcommand and omits
         # preparation of the selected HERMES_HOME dependency environment.
@@ -159,8 +162,15 @@ def main():
     original_agent_phase = Trial._run_agent_phase
     async def agent_phase(self, **kwargs):
         with self.agent_environment.with_default_user(kwargs.get('user')):
-            await ensure_wait_tool(self.agent_environment)
+            await ensure_wait_tool(self.agent_environment, force=True) if state.get('execution_mode') == 'blocking' else await ensure_wait_tool(self.agent_environment)
             await prepare_integrations(self.agent,self.agent_environment,state,saved)
+        if state.get('execution_mode') == 'blocking':
+            from wetlab_run import containers_of, gw
+            from checkpoint import inspect_container
+            main = next(cid for cid, service in containers_of(self.agent_environment.session_id.lower()) if service == 'main')
+            code, value = await asyncio.to_thread(gw, state, 'POST', f"/admin/runs/{state['run_id']}/bind-container",
+                                                  {'container_id': inspect_container(main)['Id']})
+            if code != 200:raise ValueError('cannot bind blocking container: ' + str(value))
         phase = {'agent_started_at': time.time()}
         if state['agent'] == 'qwen-coder':
             with self.agent_environment.with_default_user(kwargs.get('user')):
@@ -199,6 +209,7 @@ def main():
     Trial._run_agent_phase = agent_phase
     try:app()
     finally:
+        atomic_json(Path(state['current_job'])/'worker_done.json', {'pid': os.getpid(), 'finished_at': time.time()})
         if effective.get('server') and state.get('current_job'):
             atomic_json(Path(state['current_job'])/'model-transport.json',effective['server'].evidence())
 

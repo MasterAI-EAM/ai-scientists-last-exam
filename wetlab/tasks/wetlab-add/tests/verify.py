@@ -35,6 +35,8 @@ def check() -> dict:
         if event['type'] == 'checkpoint_committed':
             checkpoints[body['checkpoint']] = set(body['seqs'])
         if event['type'] == 'run_finished': finished = True
+        if event['type'] == 'blocking_result_returned' and not finished and run.get('execution_mode') == 'blocking':
+            if body.get('container_id') == run.get('container_id'):resumed.add(body['seq'])
         if event['type'] == 'resume_started' and not finished:
             batch = set(body['seqs'])
             if batch <= checkpoints.get(body['checkpoint'], set()): resumed |= batch

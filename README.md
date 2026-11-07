@@ -44,6 +44,8 @@ HARBOR="$PWD/.venv/bin/harbor" scripts/run_agent.sh tasks/physical-sciences/chem
 
 [`wetlab/`](wetlab/README.md) 将一次科学任务拆成多个 Harbor 轮次：agent 提交实验后保存容器、脚本、模型及原生会话，移除容器，在外部网关等待结果；结果返回后重建环境，向原会话追加结果消息并继续。当前支持本地 Docker，运行中的进程/GPU 内存不在快照范围内。
 
+新增 `blocking` 常驻模式：在任务中设置 `[wetlab].execution_mode = "blocking"`，或启动时加 `--execution-mode blocking`。`wait_for_result` 在外部网关等待并返回结果，容器和 Agent 会话保持运行。也可先 `wetlab submit` 获取回执，再 `wait_for_result --ticket-id <seq>`；断线后按原编号重新等待。当前适配 OpenClaw、Terminus-2，超时配置与 ≥24h 验证状态见 [模式说明](wetlab/README.md#0-选择执行模式) 和 [超时清单](wetlab/TIMEOUTS.md)。默认暂停恢复模式保持不变。
+
 安装和本地配置（需要 Python 3.12 和运行中的 Docker）：
 
 ```bash
