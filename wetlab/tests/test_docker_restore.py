@@ -175,3 +175,41 @@ def test_qwen_transcript_export_survives_cancelled_cli_teardown(containers):
     assert exported and validate_session(exported,'qwen-coder')==(True,'ok')
     assert json.loads(exported.read_text())['sessionId']=='native-id'
     assert all(C.inspect_container(d[n])['State']['Paused'] for n in ['main','lab'])
+
+
+def test_blocking_wait_keeps_same_container_and_process_running(containers,monkeypatch):
+    """Real Docker exec and external HTTP wait; no model call or fake container."""
+    d=containers
+    monkeypatch.setattr(G,'DB',d['tmp']/'blocking-gateway.db',raising=False)
+    monkeypatch.setattr(G,'ADMIN_TOKEN','docker-blocking-admin')
+    G.init_db()
+    cid=C.inspect_container(d['main'])['Id']
+    original=C.inspect_container(cid)
+    with G.connect() as c:
+        _,run=G.create_run(c,{'run_id':'docker-blocking','budget':1,'execution_mode':'blocking'})
+        assert G.bind_container(c,run['run_id'],{'container_id':cid})[0]==200
+        _,receipt=G.submit(c,run['run_id'],{'expr':'1+1','idempotency_key':'docker-blocking-request'})
+    server=G.ThreadingHTTPServer(('0.0.0.0',0),G.Handler)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    subprocess.run(['docker','cp',str(Path(G.__file__).with_name('wetlab_cli.py')),f'{cid}:/tmp/wait_for_result'],check=True,capture_output=True)
+    # The independent heartbeat proves this container is not paused while waiting.
+    C.docker('exec','-d',cid,'sh','-c','sleep 1; echo still-running > /volatile/heartbeat')
+    cmd=['docker','exec','-e',f'WETLAB_URL=http://host.docker.internal:{server.server_port}','-e',f"WETLAB_TOKEN={run['token']}",cid,'python','/tmp/wait_for_result','--ticket-id',str(receipt['ticket']['seq'])]
+    waiter=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        time.sleep(1.5);assert waiter.poll() is None
+        during=C.inspect_container(cid)
+        assert during['State']['Running'] and not during['State']['Paused']
+        assert during['State']['StartedAt']==original['State']['StartedAt']
+        assert C.docker('exec',cid,'cat','/volatile/heartbeat').strip()=='still-running'
+        with G.connect() as c:G.complete(c,receipt['ticket']['seq'],{'result':'2'})
+        out,err=waiter.communicate(timeout=10)
+        assert waiter.returncode==0,err
+        assert json.loads(out)['ticket']['result']=='2'
+        assert C.inspect_container(cid)['State']['StartedAt']==original['State']['StartedAt']
+        with G.connect() as c:
+            assert G.finish(c,run['run_id'],{'answer':'2'})[0]==200
+            assert G.run_view(c,run['run_id'],False)['used']==1
+    finally:
+        if waiter.poll() is None:waiter.kill();waiter.wait()
+        server.shutdown();server.server_close()

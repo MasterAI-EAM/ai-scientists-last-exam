@@ -4,6 +4,52 @@
 
 支持范围是持久化文件和原生上下文。运行中的进程、GPU 内存、未落盘的训练状态和网络连接不在快照范围内；后台训练需要先保存可重启的检查点。当前执行后端为本地 Docker。
 
+## 0. 选择执行模式
+
+同一个 `wait_for_result` 工具通过任务的 `[wetlab].execution_mode` 或启动参数 `--execution-mode` 切换。CLI 参数优先；默认 `suspend`，旧 run 的行为不变。
+
+| 模式 | 工具返回 | 等待期间 | 继续方式 |
+| --- | --- | --- | --- |
+| `suspend` | 受理回执 | 签名归档并移除容器 | 重建容器、恢复原生会话、注入结果消息 |
+| `blocking` | 实验结果 | 容器与 harness 会话保持运行，网关在容器外等待 | 同一个工具调用返回结果，Agent 在同一会话内继续 |
+
+常驻模式配置例子（当前适配 **OpenClaw、Terminus-2**）：
+
+```toml
+[wetlab]
+execution_mode = "blocking"
+budget = 3
+max_rounds = 3
+active_budget_sec = 28800
+wait_timeout_sec = 90000  # 单次外部等待上限，25 小时
+blocking_agent_timeout_sec = 298860  # 活跃预算 + 3 * 等待上限 + 60 秒余量
+```
+
+也可在下面的启动命令后加 `--execution-mode blocking`，使用默认 25 小时等待上限。`blocking_agent_timeout_sec` 不能小于上述计算值，省略时自动计算；它同时写入 Harbor Agent 总超时和控制器监控时限。常驻模式的总时限包含等待；`round_timeout_sec` 和提交后的暂停宽限期不会提前终止等待。
+
+网关由受信 worker 绑定完整 Docker 容器 ID，实验受理记录同时保存工单编号、容器身份和预算。容器内可以一次提交并等结果：
+
+```bash
+wait_for_result --expr "1+1" --request-id measurement-001
+# 命令在外部网关等结果；返回后才继续分析。
+wetlab finish --answer 2
+```
+
+也可以显式分两步，先确认受理，再用回执中的 `seq` 等待：
+
+```bash
+wetlab submit --expr "1+1" --request-id measurement-001
+wait_for_result --ticket-id 1
+```
+
+`wetlab submit` 在两种模式下都只返回回执；`wetlab wait_for_result` 与独立命令相同。常驻模式下不要在提交后结束 turn，也不要后台执行工具或由模型轮询。框架会追加该模式的指令。
+
+网关采用可重连的短周期 HTTP 长轮询；一个连接最长等待 20 秒，线程在网关内睡眠并接收回填通知，客户端只做传输重试。没有模型轮询，也不把 24 小时绑定在同一个 TCP 连接上。网关重启、断网或等待进程被杀后，用同一 `--ticket-id` 重新等待；不创建新工单、不再次扣费。`--wait-timeout` 仅结束本次客户端等待，不取消实验。重复结果与重复等待只记一次交付。
+
+OpenClaw 配置延长原生会话和 exec 时限，并禁用 `process` 工具以强制 exec 同步返回；Terminus-2 在宿主机阻塞终端采样循环，覆盖其原生 60 秒采样窗口。其他 harness 的常驻模式在提交实验前拒绝，原有 `suspend` 适配继续可用。**配置为 ≥24h 不等于完成 ≥24h 实测**，44 个 harness 的状态见 [TIMEOUTS.md](TIMEOUTS.md)。
+
+控制器被打断后，`continue` 可接管仍在运行的同一 worker，不轮换 token、不暂停或重建容器。若 harness 本身已经退出，框架保留容器与工单并标记可核对故障，不自动重启 harness；按实验编号重新等待只恢复工具等待，不承诺复活已退出的模型进程。完成任务后才按既有流程做最终归档、密封记录和独立离线评分。
+
 ## 1. 安装与凭据
 
 在仓库根目录操作，需要 Python 3.12、运行中的 Docker，以及模型供应商凭据：
@@ -77,7 +123,7 @@ wetlab history
 wetlab finish --answer 2
 ```
 
-`wait_for_result` 立即返回工单回执，并要求 agent 结束当前轮次。它不在容器中阻塞等待或循环轮询。接下来由框架：
+默认 `suspend` 模式下，`wait_for_result` 立即返回工单回执，并要求 agent 结束当前轮次。它不在容器中阻塞等待或循环轮询。接下来由框架：
 
 1. 校验原生会话已到可恢复边界，冻结全部任务服务，保存文件系统、挂载数据和会话并签名。
 2. 移除任务容器，在外部网关等待本批工单完成。提前返回的结果也会缓冲到检查点提交之后。
@@ -86,7 +132,7 @@ wetlab finish --answer 2
 
 结果消息包含工单编号、原表达式、完成状态、结果、错误（如有）及剩余额度。恢复后的 agent 也可通过 `wetlab history` 查询已交付结果；尚未交付的结果对 agent 隐藏。
 
-`wetlab wait_for_result` 等价，旧 `wetlab submit` 保留兼容。示例镜像安装两个命令入口；框架也会在旧镜像缺少新入口时补装 `wait_for_result`，保留原 `wetlab` 文件。
+`wetlab wait_for_result` 等价；`wetlab submit` 只返回受理回执，保留原有暂停模式的兼容行为。示例镜像安装两个命令入口；框架也会在旧镜像缺少新入口时补装 `wait_for_result`，保留原 `wetlab` 文件。
 
 ### 将自己的任务接入控制器
 
@@ -177,7 +223,7 @@ curl --fail-with-body -sS \
 
 原生导入、原生文件系统恢复及协议桥接由 `sessions.py`、`advanced.py` 和各适配模块处理；安装在容器内的 harness 与恢复前版本必须一致。工作进程只做进程内集成，不修改已安装的 Harbor 源文件。
 
-历史实际验证的 29 个 harness、模式限制及尚未完成的适配见 [VALIDATION.md](VALIDATION.md)。适配器已注册不等于完成真实验证。OpenClaw 的已测原生版本为 `2026.11.1 (4ffdd20)`。Gemini/Antigravity 使用协议桥仍调用指定 DeepSeek；ACP 选择 OpenCode ACP 后端；Strands、LangGraph 等项目型框架带有示例 factory。
+以下历史验证对应暂停模式。历史实际验证的 29 个 harness、模式限制及尚未完成的适配见 [VALIDATION.md](VALIDATION.md)。适配器已注册不等于完成真实验证。OpenClaw 的已测原生版本为 `2026.11.1 (4ffdd20)`。Gemini/Antigravity 使用协议桥仍调用指定 DeepSeek；ACP 选择 OpenCode ACP 后端；Strands、LangGraph 等项目型框架带有示例 factory。
 
 ## 8. 测试
 
@@ -204,3 +250,14 @@ Docker 测试会从示例环境构建自己的基础镜像；不依赖某台机�
 ```
 
 测试私有签名元数据保存在本机 `/tmp` 的 0600 文件中；独立核验需保留它。故障注入仅用于测试：`WETLAB_CRASH_AT=after_checkpoint_rename`、`before_deliver`、`after_deliver`，网关 `--fault-drop-submit-response N`。
+
+常驻模式真实模型验证入口（需要供应商凭据；反馈由测试程序模拟）：
+
+```bash
+.venv/bin/python wetlab/tests/run_blocking_live.py \
+  --env-file wetlab/.env --out wetlab/state/blocking-live-001 \
+  --harbor "$PWD/.venv/bin/harbor" --archive-dir "$WETLAB_ARCHIVE_DIR" \
+  --agents openclaw terminus-2 --wait-seconds 70
+```
+
+用 `--wait-seconds 86410` 才会进行超过 24 小时的实际等待，需要保持宿主机、Docker、网关和供电稳定；不要把短时通过记录改写为一天验证。运行目录包含逐次容器状态采样和 `verification.json`。供应商凭据不写入记录，签名私有元数据单独保存在本机 `/tmp`。

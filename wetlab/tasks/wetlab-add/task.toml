@@ -26,6 +26,9 @@ environment_mode = "separate"
 network_mode = "no-network"
 
 [wetlab]
+# Use "blocking" for a live container with OpenClaw or Terminus-2.
+execution_mode = "suspend"
+# Blocking defaults: wait_timeout_sec = 90000; total timeout is computed.
 max_rounds = 3
 budget = 3
 round_timeout_sec = 900

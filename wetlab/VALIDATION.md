@@ -37,3 +37,18 @@ WETLAB_DOCKER_TEST=1 .venv/bin/python -m pytest wetlab/tests -q
 ```
 
 真实模型测试命令见 [README.md](README.md#8-测试)，需显式提供本地凭据，会调用供应商。进程状态、GPU 内存、未落盘数据及网络连接不属于恢复承诺；真实实验端必须遵循领取协议，并在外部设备侧使用实验身份去重。
+
+## 常驻模式验证（新增）
+
+默认暂停模式保持兼容。新增 `blocking` 模式的完整回归结果为 `113 passed in 71.45s`，包含 7 项实际 Docker 集成检查。覆盖真实网关进程重启、等待客户端被杀后按编号重连、结果响应丢失后重放、并发/重复通知、容器持续运行以及控制器接管存活 worker。
+
+2026-11-07 的严格真实模型复测使用腾讯 TokenHub / `deepseek/deepseek-flash`，模拟人工领取和回填。两者均满足：单个容器 ID 和 StartedAt 不变、无暂停采样、无中间检查点、只受理一个实验、Harbor 无 harness 异常、独立离线 verifier 的 reward 为 1。测试期间根目录实现文件哈希未变化。
+
+| Harness | 实际实验等待 | 配置的单次等待上限 | Harbor 总时限 | 结果 |
+| --- | --- | --- | --- | --- |
+| openclaw | 70.103 秒 | 90000 秒 | 90660 秒 | 通过 |
+| terminus-2 | 70.221 秒 | 90000 秒 | 90660 秒 | 通过 |
+
+早期探针曾出现 OpenClaw JSON 尾部诊断导致的会话 ID 解析异常，旧探针的 reward=1 不作为完整通过证据；原始记录保留并附加审计说明。最终复测已修复解析，并明确要求 `exception_info` 为空，防止实验完成掩盖 harness 失败。
+
+以上是短时真实模型验证，**没有完成 >=24h 连续等待实测**。其余 42 个模型 harness 未适配常驻模式，提交前拒绝；暂停模式的历史结果不能替代常驻模式验证。超时清单和一天长测命令见 [TIMEOUTS.md](TIMEOUTS.md) 及 [README.md](README.md)。
