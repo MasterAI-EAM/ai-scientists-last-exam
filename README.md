@@ -88,6 +88,11 @@ The reference solution should meet the task's success criteria; the no-op agent 
 
 ## Citation
 
+**Co-first authors:** Gan Zhang, Hubert He, Xu Huang.  
+**Co-corresponding authors:** Dong Gong, Zekun Ren, Philippe Schwaller, Tong Xie.
+
+The complete author list is included in the citation below.
+
 If you use AISLE in your research, please cite our manuscript:
 
 ```bibtex
