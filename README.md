@@ -91,41 +91,15 @@ The reference solution should meet the task's success criteria; the no-op agent 
 **Co-first authors:** Gan Zhang, Hubert He, Xu Huang.  
 **Co-corresponding authors:** Dong Gong, Zekun Ren, Philippe Schwaller, Tong Xie.
 
-The complete author list is included in the citation below.
+The complete author list is available in [CITATION.cff](CITATION.cff).
 
 If you use AISLE in your research, please cite our manuscript:
 
 ```bibtex
 @unpublished{zhang2026aisle,
   title = {{AI Scientists' Last Exam: Nature as the last Verifier Towards Closed-Loop Discovery}},
-  author = {Zhang, Gan and
-            He, Hubert and
-            Huang, Xu and
-            Cao, Bin and
-            Hoex, Bram and
-            Segura, David Ming and
-            Gibberd, Gabriel and
-            Hao, Han and
-            Zhou, Huichi and
-            Jiang, Jessica Yajie and
-            Yee, JiaEn and
-            Hart, Matt and
-            Yang, Sen and
-            Tang, Shixiang and
-            Zhang, Wenjie and
-            Song, Yan and
-            Bai, Yang and
-            Zeng, Yuchen and
-            Zhang, Zijian and
-            Hippalgaonkar, Kedar and
-            Bednarz, Tomasz and
-            van den Hengel, Anton and
-            Wang, Jun and
-            Ceder, Gerbrand and
-            Gong, Dong and
-            Ren, Zekun and
-            Schwaller, Philippe and
-            Xie, Tong},
+  author = {Zhang, Gan and He, Hubert and Huang, Xu and
+            Gong, Dong and Ren, Zekun and Schwaller, Philippe and Xie, Tong},
   year = {2026},
   note = {Unpublished manuscript; work in progress},
   url = {https://github.com/MasterAI-EAM/ai-scientists-last-exam}
