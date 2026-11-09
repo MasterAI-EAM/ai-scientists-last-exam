@@ -1,5 +1,0 @@
-# numpy-only timing of one two-species step at NE x NR = 120 x 48 per species (np_step2.py), three repeats,
-# numpy 2.4.4, OMP/OPENBLAS threads = 1, build host, packaging 2026-09-29
-numpy 2 species: tables 2.027 s, orbit sums 0.143 s, block solves 0.030 s, total/step 2.200 s
-numpy 2 species: tables 1.763 s, orbit sums 0.157 s, block solves 0.032 s, total/step 1.952 s
-numpy 2 species: tables 1.550 s, orbit sums 0.145 s, block solves 0.030 s, total/step 1.725 s
