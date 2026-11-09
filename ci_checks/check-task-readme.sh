@@ -132,7 +132,7 @@ def prose_words(s):
 targets = sys.argv[2:]
 if not targets:
     root = template.parent
-    targets = [str(p.parent) for p in sorted(root.glob("tasks/*/*/*/task.toml"))]
+    targets = [str(p.parent) for p in sorted((root / "tasks").rglob("task.toml"))]
 
 # The three sections were [metadata] fields until they moved here, and 36 of the 49
 # open task PRs at the time of writing still carry them in task.toml -- authored

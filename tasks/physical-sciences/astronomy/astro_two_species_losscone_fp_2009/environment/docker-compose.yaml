@@ -1,3 +1,0 @@
-# LLM-proxy sidecar; it starts only with COMPOSE_PROFILES=llm-proxy.
-include:
-  - proxy.compose.yaml
