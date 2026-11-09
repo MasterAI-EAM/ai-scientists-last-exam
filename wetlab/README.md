@@ -1,19 +1,19 @@
-# Wetlab：湿实验暂停与恢复
+# Wetlab: suspend and resume laboratory experiments
 
-`wetlab` 在 Harbor 0.25.0 外增加一个本地 Docker 控制器。Agent 提交实验后，框架保存容器文件、挂载数据和原生会话，移除任务容器，在容器外等待结果；结果到达后重建环境，沿用原会话继续下一轮。
+`wetlab` adds a local Docker controller around Harbor 0.25.0. After an agent submits an experiment, the framework saves container files, mounted data and the native session, removes the task containers, and waits outside the containers. Once results arrive, it rebuilds the environment and continues the next round in the original session.
 
-支持范围是持久化文件和原生上下文。运行中的进程、GPU 内存、未落盘的训练状态和网络连接不在快照范围内；后台训练需要先保存可重启的检查点。当前执行后端为本地 Docker。
+Recovery covers persistent files and native context. Running processes, GPU memory, training state not written to disk, and network connections are outside the snapshot scope; background training must first save a restartable checkpoint. The current execution backend is local Docker.
 
-## 0. 选择执行模式
+## 0. Choose an execution mode
 
-同一个 `wait_for_result` 工具通过任务的 `[wetlab].execution_mode` 或启动参数 `--execution-mode` 切换。CLI 参数优先；默认 `suspend`，旧 run 的行为不变。
+The same `wait_for_result` tool switches modes through the task's `[wetlab].execution_mode` or the `--execution-mode` launch option. The CLI option takes precedence. The default is `suspend`, preserving behavior for old runs.
 
-| 模式 | 工具返回 | 等待期间 | 继续方式 |
+| Mode | Tool returns | While waiting | Continuation |
 | --- | --- | --- | --- |
-| `suspend` | 受理回执 | 签名归档并移除容器 | 重建容器、恢复原生会话、注入结果消息 |
-| `blocking` | 实验结果 | 容器与 harness 会话保持运行，网关在容器外等待 | 同一个工具调用返回结果，Agent 在同一会话内继续 |
+| `suspend` | Acceptance receipt | Sign archives and remove containers | Rebuild containers, restore the native session and inject a result message |
+| `blocking` | Experiment result | Containers and harness sessions keep running; the gateway waits outside them | The same tool call returns the result and the agent continues in the same session |
 
-常驻模式配置例子（当前适配 **OpenClaw、Terminus-2**）：
+Blocking-mode configuration example (currently supported for **OpenClaw and Terminus-2**):
 
 ```toml
 [wetlab]
@@ -21,57 +21,57 @@ execution_mode = "blocking"
 budget = 3
 max_rounds = 3
 active_budget_sec = 28800
-wait_timeout_sec = 90000  # 单次外部等待上限，25 小时
-blocking_agent_timeout_sec = 298860  # 活跃预算 + 3 * 等待上限 + 60 秒余量
+wait_timeout_sec = 90000  # Maximum external wait per experiment: 25 hours
+blocking_agent_timeout_sec = 298860  # Active budget + 3 * wait limit + 60 seconds
 ```
 
-也可在下面的启动命令后加 `--execution-mode blocking`，使用默认 25 小时等待上限。`blocking_agent_timeout_sec` 不能小于上述计算值，省略时自动计算；它同时写入 Harbor Agent 总超时和控制器监控时限。常驻模式的总时限包含等待；`round_timeout_sec` 和提交后的暂停宽限期不会提前终止等待。
+Alternatively, append `--execution-mode blocking` to the launch command below to use the default 25-hour wait limit. `blocking_agent_timeout_sec` must be at least the value calculated above and is calculated automatically when omitted. It sets both the Harbor agent timeout and the controller monitoring deadline. Blocking-mode deadlines include waiting; `round_timeout_sec` and the post-submission suspension grace period do not terminate waits early.
 
-网关由受信 worker 绑定完整 Docker 容器 ID，实验受理记录同时保存工单编号、容器身份和预算。容器内可以一次提交并等结果：
+A trusted worker binds the gateway to the full Docker container ID. Accepted experiments record the ticket ID, container identity and budget. Inside the container, submit and wait in one call:
 
 ```bash
 wait_for_result --expr "1+1" --request-id measurement-001
-# 命令在外部网关等结果；返回后才继续分析。
+# Wait for the external gateway result; continue analysis only after return.
 wetlab finish --answer 2
 ```
 
-也可以显式分两步，先确认受理，再用回执中的 `seq` 等待：
+Alternatively, use two explicit steps: confirm acceptance, then wait using the receipt's `seq`:
 
 ```bash
 wetlab submit --expr "1+1" --request-id measurement-001
 wait_for_result --ticket-id 1
 ```
 
-`wetlab submit` 在两种模式下都只返回回执；`wetlab wait_for_result` 与独立命令相同。常驻模式下不要在提交后结束 turn，也不要后台执行工具或由模型轮询。框架会追加该模式的指令。
+`wetlab submit` returns only a receipt in either mode; `wetlab wait_for_result` is equivalent to the standalone command. In blocking mode, do not end the turn after submission, run the tool in the background or poll through model calls. The framework appends mode-specific instructions.
 
-网关采用可重连的短周期 HTTP 长轮询；一个连接最长等待 20 秒，线程在网关内睡眠并接收回填通知，客户端只做传输重试。没有模型轮询，也不把 24 小时绑定在同一个 TCP 连接上。网关重启、断网或等待进程被杀后，用同一 `--ticket-id` 重新等待；不创建新工单、不再次扣费。`--wait-timeout` 仅结束本次客户端等待，不取消实验。重复结果与重复等待只记一次交付。
+The gateway uses reconnectable HTTP long polling with short intervals. Each connection waits at most 20 seconds; gateway threads sleep until result notifications arrive, and the client retries transport only. There is no model polling or single 24-hour TCP connection. After gateway restart, network loss or termination of the waiting process, wait again with the same `--ticket-id`; no new ticket is created and no additional budget is charged. `--wait-timeout` ends only the current client wait, not the experiment. Duplicate results and waits produce only one delivery record.
 
-OpenClaw 配置延长原生会话和 exec 时限，并禁用 `process` 工具以强制 exec 同步返回；Terminus-2 在宿主机阻塞终端采样循环，覆盖其原生 60 秒采样窗口。其他 harness 的常驻模式在提交实验前拒绝，原有 `suspend` 适配继续可用。**配置为 ≥24h 不等于完成 ≥24h 实测**，44 个 harness 的状态见 [TIMEOUTS.md](TIMEOUTS.md)。
+OpenClaw extends native session and exec timeouts and disables the `process` tool to force synchronous exec returns. Terminus-2 blocks the host-side terminal sampling loop beyond its native 60-second sampling window. Other harnesses reject blocking mode before experiment submission; their existing `suspend` adapters remain available. **A configuration of ≥24h is not evidence of a completed ≥24h test.** See [TIMEOUTS.md](TIMEOUTS.md) for all 44 harnesses.
 
-控制器被打断后，`continue` 可接管仍在运行的同一 worker，不轮换 token、不暂停或重建容器。若 harness 本身已经退出，框架保留容器与工单并标记可核对故障，不自动重启 harness；按实验编号重新等待只恢复工具等待，不承诺复活已退出的模型进程。完成任务后才按既有流程做最终归档、密封记录和独立离线评分。
+After controller interruption, `continue` can take over the same running worker without rotating tokens, pausing or rebuilding containers. If the harness has exited, the framework retains containers and tickets and marks an auditable failure; it does not automatically restart the harness. Waiting again by experiment ID restores only tool waiting, not an exited model process. Final archiving, ledger sealing and independent offline scoring occur after task completion.
 
-## 1. 安装与凭据
+## 1. Installation and credentials
 
-在仓库根目录操作，需要 Python 3.12、运行中的 Docker，以及模型供应商凭据：
+Run from the repository root. Requires Python 3.12, running Docker and model-provider credentials:
 
 ```bash
-# 已有 .venv 时直接使用它。
+# Reuse an existing .venv if available.
 uv venv --python 3.12
 uv pip install --python .venv/bin/python -r wetlab/requirements-dev.txt
 cp wetlab/.env.example wetlab/.env
 chmod 600 wetlab/.env
 ```
 
-在本机编辑 `wetlab/.env`：
+Edit `wetlab/.env` locally:
 
-- `WETLAB_ADMIN_TOKEN`：实验网关管理凭据。
-- `WETLAB_SIGNING_KEY`：检查点和账本的签名密钥。
-- `OPENAI_API_KEY`、`OPENAI_API_BASE`：示例使用的模型凭据与 OpenAI 兼容接口地址。
-- `WETLAB_ARCHIVE_DIR`：可选的大容量磁盘目录。
+- `WETLAB_ADMIN_TOKEN`: experiment gateway administrator credential.
+- `WETLAB_SIGNING_KEY`: checkpoint and ledger signing key.
+- `OPENAI_API_KEY`, `OPENAI_API_BASE`: model credential and OpenAI-compatible endpoint used by the example.
+- `WETLAB_ARCHIVE_DIR`: optional directory on a high-capacity disk.
 
-管理凭据和签名密钥应分别使用独立随机值，可用 `secrets.token_hex(32)` 生成。网关与控制器必须加载同一份配置；一个 run 的签名密钥应保持不变。`.env`、`.wetlab.env` 和 `state/` 均不提交 Git。
+Use independent random values for the administrator credential and signing key, for example from `secrets.token_hex(32)`. The gateway and controller must load the same configuration, and the signing key must remain unchanged throughout a run. Do not commit `.env`, `.wetlab.env` or `state/` to Git.
 
-以下两个终端都先加载配置：
+Load the configuration in both terminals below:
 
 ```bash
 set -a
@@ -81,20 +81,20 @@ export HARBOR="$PWD/.venv/bin/harbor"
 export HARBOR_PYTHON="$PWD/.venv/bin/python"
 ```
 
-其他供应商可通过 `--model`、`--base-url`、`--api-key-name` 和 harness 参数配置；它们须支持该 harness 使用的协议。CLI 参数见 `wetlab_run.py start --help`。
+Configure other providers using `--model`, `--base-url`, `--api-key-name` and harness options. Providers must support the protocol used by the harness. See `wetlab_run.py start --help` for CLI options.
 
-## 2. 先运行模拟实验示例
+## 2. Run the simulated example first
 
-终端 A 启动长期运行的网关：
+In terminal A, start the persistent gateway:
 
 ```bash
 .venv/bin/python wetlab/gateway.py \
   --port 18765 --db wetlab/state/gateway.db --lab-delay 10 15
 ```
 
-默认实验端是算术模拟器；它会在 10–15 秒后返回结果。这个例子用于验证暂停与恢复流程，不代表真实湿实验。
+The default laboratory backend is an arithmetic simulator that returns results after 10–15 seconds. This example validates suspend/resume behavior; it is not a physical wet-lab experiment.
 
-终端 B 启动 agent（会实际调用模型供应商）：
+In terminal B, start the agent (this makes real model-provider requests):
 
 ```bash
 .venv/bin/python wetlab/wetlab_run.py start wetlab/tasks/wetlab-add \
@@ -108,13 +108,13 @@ export HARBOR_PYTHON="$PWD/.venv/bin/python"
   --archive-dir "${WETLAB_ARCHIVE_DIR:-$PWD/wetlab/state/archives}"
 ```
 
-此例使用腾讯 TokenHub；`openai/` 是 Harbor 的协议前缀，实际模型 ID 为 `deepseek/deepseek-flash`。更换服务地址时同步修改 `--allow-agent-host`。容器必须能访问 `--gateway-url-container`：Docker Desktop 可用 `host.docker.internal`；其他 Docker 环境需要配置可达的宿主机地址或 host-gateway 映射。
+This example uses Tencent TokenHub. `openai/` is Harbor's protocol prefix; the actual model ID is `deepseek/deepseek-flash`. Update `--allow-agent-host` when changing the endpoint. The container must reach `--gateway-url-container`: Docker Desktop supports `host.docker.internal`; other Docker installations require a reachable host address or host-gateway mapping.
 
-`example-001` 是一次运行的唯一目录。另开新实验使用新目录；恢复已有实验使用 `continue` 或 `retry`。检查点较大时，将 `WETLAB_ARCHIVE_DIR` 指向容量充足的磁盘。
+`example-001` is a unique directory for one run. Use a new directory for a new experiment and `continue` or `retry` to resume an existing run. For large checkpoints, point `WETLAB_ARCHIVE_DIR` to a disk with sufficient capacity.
 
-## 3. Agent 如何提交与读取结果
+## 3. How agents submit experiments and read results
 
-容器内的规范工具是：
+The canonical tools inside the container are:
 
 ```bash
 wait_for_result --expr "1+1" --reasoning "measurement" --request-id experiment-001
@@ -123,22 +123,22 @@ wetlab history
 wetlab finish --answer 2
 ```
 
-默认 `suspend` 模式下，`wait_for_result` 立即返回工单回执，并要求 agent 结束当前轮次。它不在容器中阻塞等待或循环轮询。接下来由框架：
+In default `suspend` mode, `wait_for_result` immediately returns a ticket receipt and asks the agent to end the current round. It does not block or poll inside the container. The framework then:
 
-1. 校验原生会话已到可恢复边界，冻结全部任务服务，保存文件系统、挂载数据和会话并签名。
-2. 移除任务容器，在外部网关等待本批工单完成。提前返回的结果也会缓冲到检查点提交之后。
-3. 校验检查点、交付结果、重建容器和原生会话，将实验结果作为下一条用户消息追加给模型。
-4. 检查会话 ID、全部原有消息及新增事件，确认继续的是原任务。
+1. Verifies that the native session has reached a resumable boundary, freezes all task services, and saves and signs filesystems, mounted data and sessions.
+2. Removes task containers and waits at the external gateway for the batch of tickets. Early results are buffered until the checkpoint is committed.
+3. Validates the checkpoint, delivers results, rebuilds containers and native sessions, and appends experiment results as the next user message.
+4. Checks the session ID, all prior messages and new events to confirm continuation of the original task.
 
-结果消息包含工单编号、原表达式、完成状态、结果、错误（如有）及剩余额度。恢复后的 agent 也可通过 `wetlab history` 查询已交付结果；尚未交付的结果对 agent 隐藏。
+Result messages include the ticket ID, original expression, completion status, result, error if any, and remaining budget. Resumed agents can query delivered results through `wetlab history`; undelivered results remain hidden.
 
-`wetlab wait_for_result` 等价；`wetlab submit` 只返回受理回执，保留原有暂停模式的兼容行为。示例镜像安装两个命令入口；框架也会在旧镜像缺少新入口时补装 `wait_for_result`，保留原 `wetlab` 文件。
+`wetlab wait_for_result` is equivalent. `wetlab submit` returns only an acceptance receipt, retaining compatibility with the original suspension behavior. Example images install both command entry points; the framework also installs `wait_for_result` when it is missing in older images, preserving the original `wetlab` file.
 
-### 将自己的任务接入控制器
+### Connect your own task to the controller
 
-从 `wetlab/tasks/wetlab-add` 复制一个任务目录，保留 Harbor 的 `instruction.md`、`task.toml` 和 `environment/`，再修改指令、依赖与验证器。示例 Dockerfile 安装 `wetlab` 和 `wait_for_result`；自定义镜像也应安装两个入口，且容器内需要 Python 3。
+Copy `wetlab/tasks/wetlab-add` to a new task directory, retain Harbor's `instruction.md`, `task.toml` and `environment/`, and adapt instructions, dependencies and the verifier. The example Dockerfile installs `wetlab` and `wait_for_result`; custom images should install both entry points and provide Python 3.
 
-在 `task.toml` 中配置：
+Configure `task.toml`:
 
 ```toml
 [wetlab]
@@ -150,22 +150,22 @@ suspend_grace_sec = 25
 pending_policy_on_seal = "cancel"
 ```
 
-`budget` 是实验提交上限，最多为 `max_rounds`；拿到最后一份结果后仍会给 agent 完成任务的轮次。`active_budget_sec` 限制累计活跃运行时间；实验等待阶段不计入。指令应要求 agent 先保存文件，再调用 `wait_for_result` 并结束本轮；最后用 `wetlab finish` 完成任务。启动后的任务目录不能修改，控制器会检查其校验和。
+`budget` limits experiment submissions and cannot exceed `max_rounds`; the agent still receives a completion round after the last result. `active_budget_sec` limits accumulated active execution time, excluding experiment waiting. Instructions should require saving files before calling `wait_for_result` and ending the round, then completing the task with `wetlab finish`. Do not modify a task directory after launch; the controller checks its checksum.
 
-当前工单格式是演示用 `expr` 字符串和 `reasoning`，不是通用实验方案 schema。真实工作流可以由受信实验端解释约定的文本格式；增加结构化方案或附件，需要同步扩展客户端和网关，并保留幂等身份。
+The current ticket format uses a demonstration `expr` string and `reasoning`, not a general experiment-plan schema. A trusted laboratory backend can interpret an agreed text format for real workflows. Structured plans or attachments require coordinated client and gateway extensions while preserving idempotent identities.
 
-当前最终评分使用任务的 `tests/Dockerfile` 构建独立验证镜像，在无网络环境运行 `/tests/test.sh`；签名账本只读挂载到 `/ledger/ledger.json`，输出写入 `/logs/verifier/reward.txt`。示例验证器检查实验账本；若要对 agent 文件或模型评分，需要另外实现只读制品输入，不能直接照搬普通 Harbor verifier 的文件访问假设。
+Final scoring builds a separate verifier image from the task's `tests/Dockerfile` and runs `/tests/test.sh` without network access. The signed ledger is mounted read-only at `/ledger/ledger.json`, and output goes to `/logs/verifier/reward.txt`. The example verifier checks the experiment ledger. Scoring agent files or models requires additional read-only artifact inputs; ordinary Harbor verifier file-access assumptions cannot simply be reused.
 
-## 4. 接入人工或外部实验端
+## 4. Connect a human or external laboratory
 
-在启动一轮新的真实实验流程之前，网关使用 `--manual-lab` 禁用算术模拟器：
+Before starting a new real-experiment workflow, disable the arithmetic simulator with `--manual-lab`:
 
 ```bash
 .venv/bin/python wetlab/gateway.py \
   --port 18765 --db wetlab/state/manual-gateway.db --manual-lab
 ```
 
-实验端使用管理凭据查询和领取工单。下面假设编号为 1：
+The laboratory backend uses administrator credentials to query and claim tickets. This example assumes ticket 1:
 
 ```bash
 curl --fail-with-body -sS \
@@ -178,7 +178,7 @@ curl --fail-with-body -sS \
   http://127.0.0.1:18765/admin/tickets/1/claim
 ```
 
-**只有领取响应的 `execute` 为 `true` 时才开工。** 将返回的 `execution_id` 作为外部仪器/LIMS 的幂等键。完成后回填：
+**Execute only when `execute` is `true` in the claim response.** Use the returned `execution_id` as the idempotency key in external instruments or a LIMS. Submit the result after completion:
 
 ```bash
 curl --fail-with-body -sS \
@@ -187,20 +187,20 @@ curl --fail-with-body -sS \
   http://127.0.0.1:18765/admin/tickets/1/complete
 ```
 
-失败使用 `{"failed":true,"result":null,"error":"failure description"}`。当前结果载荷是文本，尚无原始实验文件的自动上传、下载或挂载；LIMS/UI 接入需要自行实现。网关的管理接口适用于本地或受信网络；部署层负责网络访问控制。
+For failures, use `{"failed":true,"result":null,"error":"failure description"}`. Results are currently text payloads; automatic upload, download or mounting of raw experimental files is not implemented. LIMS/UI integration must be implemented separately. Gateway administration interfaces are intended for local or trusted networks; the deployment layer must enforce network access controls.
 
-## 5. 重复通知与执行状态
+## 5. Duplicate notifications and execution state
 
-- 同一操作跨轮重试时，复用 `--request-id` 和原参数。省略时，客户端每个 run/轮次使用一个默认身份；有意在后续轮次复现实验应使用新 ID。
-- 客户端用文件锁串行处理并发调用，在 POST 前落盘并 fsync 请求记录。响应丢失时仍复用原键。
-- 网关在一个事务内受理、扣实验额度并关闭提交；同键返回原工单，同键不同内容返回 409。
-- 实验端领取时先持久化 `accepted -> running`，每张工单最多发一个执行许可。重复通知与竞争执行者得到 `execute: false`。
-- 重复相同结果回填返回原结果；冲突结果被拒绝。重复交付不会重新开放一个已有待执行实验的轮次。
-- 领取响应丢失或执行进程崩溃后，状态可能停在 `running`。查询 `/admin/running` 后人工核对，不自动重跑。
+- Reuse `--request-id` and the original parameters when retrying the same operation across rounds. If omitted, the client uses one default identity per run/round. Use a new ID for an intentional repeat experiment in a later round.
+- The client serializes concurrent calls with a file lock and persists and fsyncs the request record before POST. Lost responses reuse the original key.
+- The gateway accepts the request, charges the experiment budget and closes submissions in one transaction. Reusing a key returns the original ticket; the same key with different content returns 409.
+- Claiming first persists `accepted -> running`, issuing at most one execution permit per ticket. Duplicate notifications and competing workers receive `execute: false`.
+- Repeated identical result submissions return the original result; conflicting results are rejected. Duplicate deliveries do not reopen a round that already has a pending experiment.
+- A lost claim response or crashed execution process may leave a ticket in `running`. Query `/admin/running` and reconcile manually; do not rerun automatically.
 
-这是执行许可最多一次的协议；真实设备和人工操作者必须遵守领取结果与工单身份。框架无法去重绕过协议执行的物理工作。旧实验系统仍可直接回填结果，但接入执行流程应使用上述领取协议。
+This protocol provides at most one execution permit. Physical devices and human operators must respect claim results and ticket identities. The framework cannot deduplicate physical work performed outside the protocol. Legacy laboratory systems can still submit results directly, but execution integrations should use the claim protocol above.
 
-## 6. 中断、恢复与归档
+## 6. Interruption, recovery and archives
 
 ```bash
 .venv/bin/python wetlab/wetlab_run.py status wetlab/state/example-001
@@ -209,35 +209,35 @@ curl --fail-with-body -sS \
 .venv/bin/python wetlab/wetlab_run.py abort wetlab/state/example-001
 ```
 
-`continue` 恢复中断的控制器；`retry` 重试 `FAILED_RECOVERABLE` 阶段；`abort` 密封账本并按配置处理未完成工单。`status` 可与运行中的控制器配合使用；同一个运行目录只允许一个控制器写入。
+`continue` resumes an interrupted controller; `retry` retries a `FAILED_RECOVERABLE` stage; `abort` seals the ledger and handles pending tickets according to configuration. `status` can be used alongside a running controller. Only one controller may write to a run directory.
 
-签名检查点包含所有任务服务的不可变镜像、bind/volume/tmpfs 归档、原生会话和伴随文件、精确 harness 版本及 SHA-256。挂载恢复会核对内容、权限、所有权与链接；共享卷关系也会重建。tmpfs 使用仅加入目标 PID 命名空间的只读 helper 采集。
+Signed checkpoints include immutable images for every task service, bind/volume/tmpfs archives, native sessions and companion files, exact harness versions and SHA-256 checksums. Mount restoration verifies contents, permissions, ownership and links, and restores shared-volume relationships. A read-only helper joins only the target PID namespace to collect tmpfs data.
 
-`--archive-dir` 将大归档放入指定位置的独立 run-ID 目录；运行状态、日志、账本仍在 `--run-dir`。两个位置和签名密钥都必须保留。删除本机镜像缓存后可从 `images.tar` 重新加载。最终一轮的文件和训练模型也保留在最终环境归档中。
+`--archive-dir` stores large archives under a separate run-ID directory at the chosen location; state, logs and the ledger remain under `--run-dir`. Preserve both locations and the signing key. Images can be reloaded from `images.tar` after deleting the local image cache. Final-round files and trained models remain in the final environment archive.
 
-快照写入跨进程串行化，并在归档磁盘或本地运行磁盘低于 3 GiB 保留空间时停止，等待释放空间后 `retry`。已知凭证出现在配置、会话、挂载或镜像压缩层时，框架拒绝提交快照。无签名的旧版 v1 检查点不自动升级。
+Snapshot writes are serialized across processes and stop when either the archive disk or local run disk has less than 3 GiB of reserved free space. Free space before using `retry`. The framework refuses to commit snapshots when known credentials appear in configuration, sessions, mounts or compressed image layers. Unsigned legacy v1 checkpoints are not automatically upgraded.
 
-设备/socket 挂载、复制扩容的 Compose 服务及非 Docker 后端不做近似恢复。`/wetlab-restore`、`/run/wetlab-internal` 为框架保留路径。
+Device/socket mounts, scaled Compose services and non-Docker backends are not approximately restored. `/wetlab-restore` and `/run/wetlab-internal` are framework-reserved paths.
 
-## 7. Harness 与验证范围
+## 7. Harnesses and validation scope
 
-原生导入、原生文件系统恢复及协议桥接由 `sessions.py`、`advanced.py` 和各适配模块处理；安装在容器内的 harness 与恢复前版本必须一致。工作进程只做进程内集成，不修改已安装的 Harbor 源文件。
+Native import, native filesystem restoration and protocol bridging are handled by `sessions.py`, `advanced.py` and adapter modules. Harness versions installed inside containers must match those before recovery. Workers integrate in-process only and do not modify installed Harbor source files.
 
-以下历史验证对应暂停模式。历史实际验证的 29 个 harness、模式限制及尚未完成的适配见 [VALIDATION.md](VALIDATION.md)。适配器已注册不等于完成真实验证。OpenClaw 的已测原生版本为 `2026.11.1 (4ffdd20)`。Gemini/Antigravity 使用协议桥仍调用指定 DeepSeek；ACP 选择 OpenCode ACP 后端；Strands、LangGraph 等项目型框架带有示例 factory。
+The historical validation below applies to suspend mode. See [VALIDATION.md](VALIDATION.md) for the 29 harnesses tested with real models, mode limitations and incomplete adapters. Registration of an adapter does not establish live validation. The tested OpenClaw version is `2026.11.1 (4ffdd20)`. Gemini/Antigravity protocol bridges still call the designated DeepSeek model; ACP selects the OpenCode ACP backend; project-based frameworks such as Strands and LangGraph include example factories.
 
-## 8. 测试
+## 8. Tests
 
 ```bash
-# 无模型请求；默认跳过需要 Docker 的检查。
+# No model requests; checks requiring Docker are skipped by default.
 .venv/bin/python -m pytest wetlab/tests -q
 
-# 包含实际 Docker、挂载恢复、硬崩溃恢复、CLI/HTTP 并发和重复通知测试。
+# Includes real Docker, mount restoration, crash recovery, CLI/HTTP concurrency and duplicate notifications.
 WETLAB_DOCKER_TEST=1 .venv/bin/python -m pytest wetlab/tests -q
 ```
 
-Docker 测试会从示例环境构建自己的基础镜像；不依赖某台机器预先存在的测试 tag。需要构建时访问依赖源；`WETLAB_TEST_IMAGE` 可显式指定已准备的兼容基础镜像。
+Docker tests build their own base image from the example environment, without depending on machine-specific test tags. Building requires access to dependency sources; `WETLAB_TEST_IMAGE` can explicitly select an already prepared compatible base image.
 
-需要真实模型的三轮实测须显式执行，会产生供应商请求；反馈仍为模拟实验：
+Three-round tests with real models must be explicitly invoked and make provider requests; experiment feedback remains simulated:
 
 ```bash
 .venv/bin/python wetlab/tests/run_live.py --env-file wetlab/.env \
@@ -249,9 +249,9 @@ Docker 测试会从示例环境构建自己的基础镜像；不依赖某台机�
   wetlab/state/live-test-001/openclaw/run --out wetlab/state/openclaw-verification.json
 ```
 
-测试私有签名元数据保存在本机 `/tmp` 的 0600 文件中；独立核验需保留它。故障注入仅用于测试：`WETLAB_CRASH_AT=after_checkpoint_rename`、`before_deliver`、`after_deliver`，网关 `--fault-drop-submit-response N`。
+Private signing metadata for tests is saved locally in `/tmp` files with mode 0600; retain it for independent verification. Fault injection is for tests only: `WETLAB_CRASH_AT=after_checkpoint_rename`, `before_deliver`, `after_deliver`, and gateway `--fault-drop-submit-response N`.
 
-常驻模式真实模型验证入口（需要供应商凭据；反馈由测试程序模拟）：
+Blocking-mode live-model validation entry point (provider credentials required; the test program simulates feedback):
 
 ```bash
 .venv/bin/python wetlab/tests/run_blocking_live.py \
@@ -260,4 +260,4 @@ Docker 测试会从示例环境构建自己的基础镜像；不依赖某台机�
   --agents openclaw terminus-2 --wait-seconds 70
 ```
 
-用 `--wait-seconds 86410` 才会进行超过 24 小时的实际等待，需要保持宿主机、Docker、网关和供电稳定；不要把短时通过记录改写为一天验证。运行目录包含逐次容器状态采样和 `verification.json`。供应商凭据不写入记录，签名私有元数据单独保存在本机 `/tmp`。
+Only `--wait-seconds 86410` tests an actual wait exceeding 24 hours. Keep the host, Docker, gateway and power supply stable; do not describe short passing tests as day-long validation. The run directory includes repeated container-state samples and `verification.json`. Provider credentials are not written to records; private signing metadata is stored separately in local `/tmp`.

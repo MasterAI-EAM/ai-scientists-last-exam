@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MasterAI-EAM/ai-scientists-last-exam/stargazers"><img src="https://img.shields.io/github/stars/MasterAI-EAM/ai-scientists-last-exam?style=flat&amp;logo=github&amp;label=Stars" alt="GitHub stars"></a>
+  <a href="https://github.com/MasterAI-EAM/ai-scientists-last-exam/stargazers"><img src="https://img.shields.io/github/stars/MasterAI-EAM/ai-scientists-last-exam.svg?style=flat&amp;label=Stars&amp;cacheSeconds=300" alt="GitHub stars"></a>
   <img src="https://visitor-badge.laobi.icu/badge?page_id=MasterAI-EAM.ai-scientists-last-exam&amp;left_text=Visitors" alt="Visitors">
 </p>
 
